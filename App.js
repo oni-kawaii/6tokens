@@ -25,7 +25,7 @@ import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatli
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 
-SplashScreen.preventAutoHideAsync().catch(() => {});
+SplashScreen.preventAutoHideAsync().catch(() => { });
 
 const { width, height } = Dimensions.get('window');
 const ITEM_HEIGHT = 70;
@@ -38,7 +38,7 @@ export default function App() {
   const [players, setPlayers] = useState([]);
   const [games, setGames] = useState([]);
   const [viewMode, setViewMode] = useState('camera');
-  
+
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const [gameVotes, setGameVotes] = useState({});
 
@@ -47,24 +47,24 @@ export default function App() {
   const scrollRef = useRef(null);
   const [isShuttering, setIsShuttering] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  
+
   // --- 2. EFFETTI ---
   useEffect(() => {
-    SplashScreen.hideAsync().catch(() => {});
+    SplashScreen.hideAsync().catch(() => { });
     const backAction = () => {
       if (screen === 'showPlayers') { setScreen('selectNumber'); return true; }
       if (screen === 'addGames') {
         if (viewMode === 'gallery') { setViewMode('camera'); return true; }
-        setScreen('showPlayers'); 
+        setScreen('showPlayers');
         return true;
       }
-      if (screen === 'voting' || screen === 'passPhone') { 
+      if (screen === 'voting' || screen === 'passPhone') {
         // RESET TOTALE: svuota tutti i voti e torna al primo giocatore
         setGameVotes({});
         setCurrentPlayerIndex(0);
         setScreen('addGames');
-        setViewMode('gallery'); 
-        return true; 
+        setViewMode('gallery');
+        return true;
       }
       return false;
     };
@@ -85,14 +85,14 @@ export default function App() {
 
   // --- 3. LOGICA ---
   const colors = [
-    { bg: '#EF4444', text: '#FFFFFF' }, 
+    { bg: '#EF4444', text: '#FFFFFF' },
     { bg: '#ffcc00', text: '#FFFFFF' },
-    { bg: '#1e4cd6', text: '#FFFFFF' }, 
+    { bg: '#1e4cd6', text: '#FFFFFF' },
     { bg: '#adf222', text: '#FFFFFF' },
-    { bg: '#ff7700', text: '#FFFFFF' }, 
+    { bg: '#ff7700', text: '#FFFFFF' },
     { bg: '#66d4b0', text: '#FFFFFF' },
-    { bg: '#6414d4', text: '#FFFFFF' }, 
-    { bg: '#c198c9', text: '#FFFFFF' }, 
+    { bg: '#6414d4', text: '#FFFFFF' },
+    { bg: '#c198c9', text: '#FFFFFF' },
     { bg: '#81c0ff', text: '#FFFFFF' },
     { bg: '#fd4ac7', text: '#FFFFFF' },
   ];
@@ -116,12 +116,12 @@ export default function App() {
       setTimeout(() => setIsShuttering(false), 150);
       setIsSaving(true);
       try {
-        const photo = await cameraRef.current.takePictureAsync({ 
+        const photo = await cameraRef.current.takePictureAsync({
           shutterSound: false, flash: 'off', quality: 0.2, skipHalos: true, exif: false,
         });
-        setGames(prev => [...prev, { 
+        setGames(prev => [...prev, {
           id: Date.now().toString() + Math.random().toString(), // Chiave ultra-univoca
-          uri: photo.uri 
+          uri: photo.uri
         }]);
         setIsSaving(false);
       } catch (e) {
@@ -141,8 +141,20 @@ export default function App() {
 
   const animateToken = (gameId, finalPos, rotation, tokenId, isSkull = false) => {
     const animValue = new Animated.Value(0);
-    const startX = (Math.random() - 0.5) * 600;
-    const startY = (Math.random() - 0.5) * 600;
+
+    const side = Math.floor(Math.random() * 3); // 0: Sinistra, 1: Alto, 2: Destra
+    let startX, startY;
+
+    if (side === 0) { // Da sinistra
+      startX = -width;
+      startY = (Math.random() - 0.5) * height;
+    } else if (side === 1) { // Dall'alto
+      startX = (Math.random() - 0.5) * width;
+      startY = -height;
+    } else { // Da destra
+      startX = width;
+      startY = (Math.random() - 0.5) * height;
+    }
 
     setFallingTokens(prev => [...prev, {
       id: tokenId,
@@ -185,19 +197,18 @@ export default function App() {
       .filter(([key]) => key !== 'skull' && key !== 'positions')
       .reduce((sum, [_, val]) => (typeof val === 'number' ? sum + val : sum), 0);
 
-    if (totalSpent < 6) {
+    if (totalSpent < 6) { //metti 600 per debug
       animateToken(gameId);
       handleAddToken(gameId, touchX, touchY); // Passiamo il punto del tocco
     }
   };
 
-  // --- NUOVA LOGICA VOTO ---
+  // --- LOGICA VOTO ---
   const handleAddToken = (gameId, touchX, touchY) => {
     const voterVotes = gameVotes[currentPlayerIndex] || { skull: null, positions: [] };
     const currentPositions = voterVotes.positions || [];
     const newVotes = { ...voterVotes };
 
-    // Funzione per generare una posizione che schiva il dito E gli altri token
     const getSafePosition = () => {
       let attempts = 0;
       let pos = { left: 0, top: 0 };
@@ -208,42 +219,93 @@ export default function App() {
         pos.top = Math.random() * 65 + 5;
         attempts++;
 
-        // Controlla distanza dal tocco (min 15%)
         const distToTouch = Math.sqrt(Math.pow(pos.left - touchX, 2) + Math.pow(pos.top - touchY, 2));
 
-        // Controlla distanza dagli altri token di questo gioco (min 12% per coprire max 40-60%)
+        // ANTI-SOVRAPPOSIZIONE: Controlla sia monete che teschio
         isTooClose = currentPositions
           .filter(p => p.gameId === gameId)
           .some(p => Math.sqrt(Math.pow(pos.left - p.left, 2) + Math.pow(pos.top - p.top, 2)) < 12);
 
         if (distToTouch < 15 || isTooClose) continue;
         else break;
-
-      } while (attempts < 10); // Se dopo 10 tentativi non trova spazio, si accontenta
+      } while (attempts < 15);
 
       return pos;
     };
 
-    const finalPos = getSafePosition() || { left: 50, top: 50 };
+    const finalPos = getSafePosition();
     const tokenId = `token_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const rotation = `${Math.random() * 60 - 30}deg`;
 
     const newToken = {
       id: tokenId,
       gameId: gameId,
       left: finalPos.left,
       top: finalPos.top,
-      rotation: `${Math.random() * 60 - 30}deg`,
-      isLanding: true // <--- NUOVO: Il token è in fase di atterraggio
+      rotation: rotation,
+      isLanding: true
     };
 
     newVotes[gameId] = (voterVotes[gameId] || 0) + 1;
     newVotes.positions = [...currentPositions, newToken];
 
-    // Passiamo la posizione finale e l'ID all'animazione
-    animateToken(gameId, finalPos, newToken.rotation, tokenId);
+    animateToken(gameId, finalPos, rotation, tokenId);
 
     setGameVotes({ ...gameVotes, [currentPlayerIndex]: newVotes });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const handleSkull = (gameId) => {
+    const voterVotes = gameVotes[currentPlayerIndex] || { skull: null, positions: [] };
+
+    // Se il teschio è già qui, esce senza vibrare (come da tua richiesta)
+    if (voterVotes.skull === gameId) return;
+
+    let currentPositions = Array.isArray(voterVotes.positions) ? voterVotes.positions : [];
+    const positionsWithoutSkull = currentPositions.filter(t => !t.id.includes('skull'));
+
+    // ANTI-SOVRAPPOSIZIONE PER IL TESCHIO
+    let attempts = 0;
+    let finalPos = { left: 50, top: 50 };
+    let isTooClose;
+
+    do {
+      finalPos.left = Math.random() * 60 + 20;
+      finalPos.top = Math.random() * 60 + 20;
+      attempts++;
+
+      isTooClose = positionsWithoutSkull
+        .filter(p => p.gameId === gameId)
+        .some(p => Math.sqrt(Math.pow(finalPos.left - p.left, 2) + Math.pow(finalPos.top - p.top, 2)) < 12);
+
+      if (!isTooClose) break;
+    } while (attempts < 15);
+
+    const tokenId = `skull_${Date.now()}`;
+    const rotation = `${Math.random() * 60 - 30}deg`;
+
+    const newSkullToken = {
+      id: tokenId,
+      gameId: gameId,
+      left: finalPos.left,
+      top: finalPos.top,
+      rotation: rotation,
+      isLanding: true
+    };
+
+    const newPositions = [...positionsWithoutSkull, newSkullToken];
+
+    animateToken(gameId, finalPos, rotation, tokenId, true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+
+    setGameVotes(prev => ({
+      ...prev,
+      [currentPlayerIndex]: {
+        ...voterVotes,
+        skull: gameId,
+        positions: newPositions
+      }
+    }));
   };
 
   const handleRemoveToken = (tokenId, gameId) => {
@@ -268,64 +330,12 @@ export default function App() {
     }
   };
 
-  const handleSkull = (gameId) => {
-    const voterVotes = gameVotes[currentPlayerIndex] || { skull: null, positions: [] };
-    if (voterVotes.skull === gameId) {
-            return;
-    }
-    // 1. Rimuoviamo SEMPRE ogni vecchio teschio sia dall'ID 'skull' che dalle 'positions'
-    let currentPositions = Array.isArray(voterVotes.positions) ? voterVotes.positions : [];
-    const positionsWithoutSkull = currentPositions.filter(t => !t.id.includes('skull'));
-
-    let newSkull = null;
-    let newPositions = [...positionsWithoutSkull];
-
-    // 2. Se il teschio NON era già su questo gioco, lo creiamo
-    if (voterVotes.skull !== gameId) {
-      newSkull = gameId;
-      const tokenId = `skull_${Date.now()}`;
-      const finalPos = {
-        left: Math.random() * 60 + 20,
-        top: Math.random() * 60 + 20
-      };
-      const rotation = `${Math.random() * 60 - 30}deg`;
-
-      const newSkullToken = {
-        id: tokenId,
-        gameId: gameId,
-        left: finalPos.left,
-        top: finalPos.top,
-        rotation: rotation,
-        isLanding: true
-      };
-
-      newPositions.push(newSkullToken);
-
-      // Avviamo l'animazione col flag isSkull = true
-      animateToken(gameId, finalPos, rotation, tokenId, true);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    } else {
-      // Se era già lì, l'abbiamo rimosso sopra, quindi facciamo solo il feedback
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
-
-    // 3. Salviamo lo stato: il counter dei token NON deve cambiare qui
-    setGameVotes(prev => ({
-      ...prev,
-      [currentPlayerIndex]: {
-        ...voterVotes,
-        skull: newSkull,
-        positions: newPositions
-      }
-    }));
-  };
-
   const confirmVote = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (currentPlayerIndex < players.length - 1) {
       setScreen('passPhone');
     } else {
-      setScreen('placeholder'); 
+      setScreen('placeholder');
     }
   };
 
@@ -336,8 +346,8 @@ export default function App() {
     // Se non hanno ancora votato (voti vuoti per l'indice attuale), è il primo turno
     const targetPlayer = gameVotes[currentPlayerIndex] ? players[currentPlayerIndex + 1] : players[currentPlayerIndex];
     return (
-      <TouchableOpacity 
-        activeOpacity={1} 
+      <TouchableOpacity
+        activeOpacity={1}
         style={[styles.container, { backgroundColor: targetPlayer.color.bg, justifyContent: 'center', alignItems: 'center' }]}
         onPress={() => {
           if (gameVotes[currentPlayerIndex]) setCurrentPlayerIndex(currentPlayerIndex + 1);
@@ -362,7 +372,7 @@ export default function App() {
       .reduce((sum, [_, val]) => (typeof val === 'number' ? sum + val : sum), 0);
 
     return (
-      
+
       <View style={styles.container}>
         <View style={[styles.galleryHeader, { marginTop: 40 }]}>
           <View>
@@ -375,9 +385,9 @@ export default function App() {
           </View>
         </View>
 
-        <ScrollView 
-        style={{ flex: 1, overflow: 'visible' }} // <--- overflow visible qui è la chiave
-        contentContainerStyle={{ paddingHorizontal: 15, paddingTop: 30, paddingBottom: 280 }}>
+        <ScrollView
+          style={{ flex: 1, overflow: 'visible' }} // <--- overflow visible qui è la chiave
+          contentContainerStyle={{ paddingHorizontal: 15, paddingTop: 30, paddingBottom: 280 }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
             {games.map((game) => {
               const tokens = voterVotes[game.id] || 0;
@@ -391,8 +401,8 @@ export default function App() {
                     onLongPress={() => handleSkull(game.id)}
                     style={{ flex: 1 }}
                   >
-            <Image source={{ uri: game.uri }} style={styles.gridImage} />
-  
+                    <Image source={{ uri: game.uri }} style={styles.gridImage} />
+
                     {/* MONETE CHE CADONO */}
                     {fallingTokens.filter(t => t.gameId === game.id).map(t => {
                       if (!t.finalPos) return null;
@@ -429,7 +439,7 @@ export default function App() {
                     })}
 
                     <View style={StyleSheet.absoluteFill}>
-          
+
                       {/* TOKEN GIÀ ATTERRATI */}
                       {Array.isArray(voterVotes?.positions) && voterVotes.positions
                         .filter(t => t.gameId === game.id && t.isLanding !== true)
@@ -465,15 +475,15 @@ export default function App() {
             })}
           </View>
         </ScrollView>
-              <View style={{ position: 'absolute', bottom: 140, width: '100%', alignItems: 'center', zIndex: 100 }}>
-        <TouchableOpacity 
-          style={[styles.buttonLarge, { backgroundColor: totalSpent === 6 ? '#2563eb' : '#374151', marginTop: 0 }]} 
-          disabled={totalSpent < 6} 
-          onPress={confirmVote}
-        >
-          <Text style={styles.buttonText}>{currentPlayerIndex < players.length - 1 ? 'FATTO' : 'TERMINA'}</Text>
-        </TouchableOpacity>
-      </View>
+        <View style={{ position: 'absolute', bottom: 140, width: '100%', alignItems: 'center', zIndex: 100 }}>
+          <TouchableOpacity
+            style={[styles.buttonLarge, { backgroundColor: totalSpent === 6 ? '#2563eb' : '#374151', marginTop: 0 }]}
+            disabled={totalSpent < 6}
+            onPress={confirmVote}
+          >
+            <Text style={styles.buttonText}>{currentPlayerIndex < players.length - 1 ? 'FATTO' : 'TERMINA'}</Text>
+          </TouchableOpacity>
+        </View>
         <LinearGradient colors={['transparent', '#111827']} style={styles.bottomGalleryGradient} pointerEvents="none" />
       </View>
     );
@@ -487,18 +497,18 @@ export default function App() {
           {viewMode === 'camera' ? (
             <View style={{ flex: 1, backgroundColor: '#111827', alignItems: 'center' }}>
               {/* ANTEPRIMA RISTRETTA */}
-              <View style={{ 
-                width: width * 0.9, 
-                height: width * 0.9, 
+              <View style={{
+                width: width * 0.9,
+                height: width * 0.9,
                 marginTop: 100,
-                overflow: 'hidden', 
+                overflow: 'hidden',
                 borderRadius: 25,
                 transform: [{ scale: isShuttering ? 0.95 : 1 }],
                 backgroundColor: '#000',
                 position: 'relative' // Assicura che i figli assoluti si riferiscano a questo box
               }}>
                 <CameraView ref={cameraRef} style={{ flex: 1 }} flash="off" animateShutter={false} />
-                
+
                 {/* L'overlay ora è fuori dalla CameraView, ma sopra di essa grazie alla posizione assoluta */}
                 <View style={[StyleSheet.absoluteFill, styles.cameraOverlay]} pointerEvents="none" />
               </View>
@@ -536,7 +546,7 @@ export default function App() {
                 <Text style={{ color: '#fff', fontWeight: 'bold' }}>ELEMENTI: {games.length}</Text>
               </View>
 
-                <DraggableFlatList contentContainerStyle={{ paddingBottom: 280 }}
+              <DraggableFlatList contentContainerStyle={{ paddingBottom: 280 }}
                 data={games}
                 onDragEnd={({ data }) => {
                   setGames(data);
@@ -566,9 +576,9 @@ export default function App() {
 
           {/* TASTO FATTO FISSO IN BASSO (stessa altezza delle altre schermate) */}
           <View style={{ position: 'absolute', bottom: 140, width: '100%', alignItems: 'center', zIndex: 100 }}>
-            <TouchableOpacity 
-              style={[styles.buttonLarge, games.length < 2 && { opacity: 0.5 }, { marginTop: 0 }]} 
-              onPress={() => setScreen('passPhone')} 
+            <TouchableOpacity
+              style={[styles.buttonLarge, games.length < 2 && { opacity: 0.5 }, { marginTop: 0 }]}
+              onPress={() => setScreen('passPhone')}
               disabled={games.length < 2}
             >
               <Text style={styles.buttonText}>FATTO</Text>
@@ -576,6 +586,87 @@ export default function App() {
           </View>
         </View>
       </GestureHandlerRootView>
+    );
+  } 
+
+  // SCREEN SHOW PLAYERS
+  if (screen === 'showPlayers') {
+    return (
+      <View style={styles.container}>
+
+        {/* 1. IL BLOCCO CIECO (Copre lo stretch superiore) */}
+        <View style={{
+          position: 'absolute',
+          top: -100,
+          left: 0,
+          right: 0,
+          height: 200, // Copre fino a 100px sotto il limite
+          backgroundColor: '#111827',
+          zIndex: 100,
+        }} />
+
+        {/* 2. SFUMATURA SUPERIORE (Sotto il blocco cieco) */}
+        {players.length >= 6 && (
+          <LinearGradient
+            colors={['#111827', 'transparent']}
+            style={{ position: 'absolute', top: 100, left: 0, right: 0, height: 60, zIndex: 90 }}
+            pointerEvents="none"
+          />
+        )}
+
+        {/* 3. LISTA (Tutta la pagina trascina) */}
+        <ScrollView
+          style={{ flex: 1, marginTop: 30 }}
+          // Se i giocatori sono meno di 6, lo scroll viene disattivato
+          scrollEnabled={players.length >= 6}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 120, paddingBottom: 150 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="always"
+        >
+          {players.map((player, index) => (
+            <View key={index} style={[styles.playerRow, { backgroundColor: player.color.bg }]}>
+              <TextInput
+                ref={(el) => (inputRefs.current[index] = el)}
+                style={[styles.playerInput, { color: player.color.text, textAlign: 'left', flex: 1 }]}
+                placeholder={player.defaultName}
+                placeholderTextColor="rgb(255, 255, 255)" // Lasciato come lo avevi tu
+                value={player.customName}
+                onChangeText={(text) => {
+                  const newPlayers = [...players];
+                  newPlayers[index].customName = text;
+                  setPlayers(newPlayers);
+                }}
+              />
+
+              {/* BOTTONE MATITA (Unica zona che attiva l'input) */}
+              <TouchableOpacity
+                onPress={() => inputRefs.current[index].focus()}
+                style={{ paddingHorizontal: 15, paddingVertical: 10 }}
+              >
+                <Text style={{ color: player.color.text, fontSize: 22, opacity: 0.8, transform: [{ scaleX: -1 }] }}>
+                  ✎
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </ScrollView>
+
+        {/* 4. SFUMATURA INFERIORE */}
+        {players.length >= 6 && (
+          <LinearGradient
+            colors={['transparent', '#111827']}
+            style={{ position: 'absolute', bottom: 220, left: 0, right: 0, height: 60, zIndex: 90 }}
+            pointerEvents="none"
+          />
+        )}
+
+        {/* 5. AREA TASTO AVANTI */}
+        <View style={{ paddingBottom: 140, alignItems: 'center', zIndex: 110 }}>
+          <TouchableOpacity style={styles.buttonLarge} onPress={() => setScreen('addGames')}>
+            <Text style={styles.buttonText}>AVANTI</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     );
   }
 
@@ -621,87 +712,6 @@ export default function App() {
     );
   }
 
-  // SCREEN SHOW PLAYERS
- if (screen === 'showPlayers') {
-  return (
-    <View style={styles.container}>
-      
-      {/* 1. IL BLOCCO CIECO (Copre lo stretch superiore) */}
-      <View style={{
-        position: 'absolute',
-        top: -100, 
-        left: 0,
-        right: 0,
-        height: 200, // Copre fino a 100px sotto il limite
-        backgroundColor: '#111827',
-        zIndex: 100,
-      }} />
-
-      {/* 2. SFUMATURA SUPERIORE (Sotto il blocco cieco) */}
-      {players.length >= 6 && (
-        <LinearGradient
-          colors={['#111827', 'transparent']}
-          style={{ position: 'absolute', top: 100, left: 0, right: 0, height: 60, zIndex: 90 }}
-          pointerEvents="none"
-        />
-      )}
-
-      {/* 3. LISTA (Tutta la pagina trascina) */}
-      <ScrollView 
-  style={{ flex: 1, marginTop: 30 }} 
-  // Se i giocatori sono meno di 6, lo scroll viene disattivato
-  scrollEnabled={players.length >= 6} 
-  contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 120, paddingBottom: 150 }}
-  showsVerticalScrollIndicator={false}
-  keyboardShouldPersistTaps="always"
->
-        {players.map((player, index) => (
-          <View key={index} style={[styles.playerRow, { backgroundColor: player.color.bg }]}>
-            <TextInput
-              ref={(el) => (inputRefs.current[index] = el)}
-              style={[styles.playerInput, { color: player.color.text, textAlign: 'left', flex: 1 }]}
-              placeholder={player.defaultName}
-              placeholderTextColor="rgb(255, 255, 255)" // Lasciato come lo avevi tu
-              value={player.customName}
-              onChangeText={(text) => {
-                const newPlayers = [...players];
-                newPlayers[index].customName = text;
-                setPlayers(newPlayers);
-              }}
-            />
-            
-            {/* BOTTONE MATITA (Unica zona che attiva l'input) */}
-            <TouchableOpacity 
-              onPress={() => inputRefs.current[index].focus()} 
-              style={{ paddingHorizontal: 15, paddingVertical: 10 }}
-            >
-              <Text style={{ color: player.color.text, fontSize: 22, opacity: 0.8, transform: [{ scaleX: -1 }] }}>
-                ✎
-              </Text>
-            </TouchableOpacity>
-          </View>
-        ))}
-      </ScrollView>
-
-      {/* 4. SFUMATURA INFERIORE */}
-      {players.length >= 6 && (
-        <LinearGradient
-          colors={['transparent', '#111827']}
-          style={{ position: 'absolute', bottom: 220, left: 0, right: 0, height: 60, zIndex: 90 }}
-          pointerEvents="none"
-        />
-      )}
-
-      {/* 5. AREA TASTO AVANTI */}
-      <View style={{ paddingBottom: 140, alignItems: 'center', zIndex: 110 }}>
-        <TouchableOpacity style={styles.buttonLarge} onPress={() => setScreen('addGames')}>
-          <Text style={styles.buttonText}>AVANTI</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-  }
-
   // PLACEHOLDER RISULTATI
   if (screen === 'placeholder') {
     return (
@@ -714,6 +724,7 @@ export default function App() {
 
   return null;
 }
+
 
 // STILI
 const styles = StyleSheet.create({
@@ -750,7 +761,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 25,
     marginBottom: 15, // Un po' di margine sotto l'header
-    marginTop: 10     // Un po' di margine sopra
+    marginTop: 10     // Un po' di margine sopra
   },
   bottomGalleryGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 250, zIndex: 10 },
   moveControlsOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 40, backgroundColor: 'rgba(0,0,0,0.4)', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 15, alignItems: 'center', borderBottomLeftRadius: 15, borderBottomRightRadius: 15 },
