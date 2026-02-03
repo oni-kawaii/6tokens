@@ -1,0 +1,510 @@
+// IMPORT
+import AntDesign from '@expo/vector-icons/AntDesign';
+import Entypo from '@expo/vector-icons/Entypo';
+import { CameraView } from 'expo-camera';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as SplashScreen from 'expo-splash-screen';
+import { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  BackHandler,
+  Dimensions,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+// IMPORT PER IL DRAG STILE HOME
+import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
+const { width, height } = Dimensions.get('window');
+const ITEM_HEIGHT = 70;
+const COLUMN_WIDTH = (width / 2) - 20;
+
+export default function App() {
+  // --- 1. STATI (HOOKS) ---
+  const [screen, setScreen] = useState('selectNumber');
+  const [selectedNumber, setSelectedNumber] = useState(2);
+  const [players, setPlayers] = useState([]);
+  const [games, setGames] = useState([]);
+  const [viewMode, setViewMode] = useState('camera');
+  
+  const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
+  const [gameVotes, setGameVotes] = useState({});
+
+  const inputRefs = useRef([]);
+  const cameraRef = useRef(null);
+  const [isShuttering, setIsShuttering] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // --- 2. EFFETTI ---
+  useEffect(() => {
+    SplashScreen.hideAsync().catch(() => {});
+    const backAction = () => {
+      if (screen === 'showPlayers') { setScreen('selectNumber'); return true; }
+      if (screen === 'addGames') {
+        if (viewMode === 'gallery') { setViewMode('camera'); return true; }
+        setScreen('showPlayers'); 
+        return true;
+      }
+      if (screen === 'voting' || screen === 'passPhone') { 
+        // RESET TOTALE: svuota tutti i voti e torna al primo giocatore
+        setGameVotes({});
+        setCurrentPlayerIndex(0);
+        setScreen('addGames');
+        setViewMode('gallery'); 
+        return true; 
+      }
+      return false;
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => backHandler.remove();
+  }, [screen, viewMode]);
+
+  // --- 3. LOGICA ---
+  const colors = [
+    { bg: '#EF4444', text: '#FFFFFF' }, { bg: '#ffcc00', text: '#FFFFFF' },
+    { bg: '#1e4cd6', text: '#FFFFFF' }, { bg: '#adf222', text: '#FFFFFF' },
+    { bg: '#ff6a00', text: '#FFFFFF' }, { bg: '#66d4b0', text: '#FFFFFF' },
+    { bg: '#eb8aff', text: '#FFFFFF' }, { bg: '#3b1a89', text: '#FFFFFF' },
+    { bg: '#f72c91', text: '#FFFFFF' }, { bg: '#06B6D4', text: '#FFFFFF' },
+  ];
+
+  const numbers = Array.from({ length: 9 }, (_, i) => i + 2);
+
+  const handleStartVoting = () => {
+    const newPlayers = Array.from({ length: selectedNumber }, (_, i) => ({
+      defaultName: `Giocatore ${i + 1}`,
+      customName: '',
+      color: colors[i % colors.length]
+    }));
+    setPlayers(newPlayers);
+    setScreen('showPlayers');
+  };
+
+  const capturePhoto = async () => {
+    if (cameraRef.current) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setIsShuttering(true);
+      setTimeout(() => setIsShuttering(false), 150);
+      setIsSaving(true);
+      try {
+        const photo = await cameraRef.current.takePictureAsync({ 
+          shutterSound: false, flash: 'off', quality: 0.2, skipHalos: true, exif: false,
+        });
+        setGames(prev => [...prev, { id: Date.now().toString(), uri: photo.uri }]);
+        setIsSaving(false);
+      } catch (e) {
+        console.log("Errore scatto:", e);
+        setIsSaving(false);
+        setIsShuttering(false);
+      }
+    }
+  };
+
+  const deletePhoto = (id) => {
+    setGames(games.filter(g => g.id !== id));
+  };
+
+
+  // --- NUOVA LOGICA VOTO ---
+  const handleAddToken = (gameId) => {
+    const voterVotes = gameVotes[currentPlayerIndex] || { skull: null };
+    const totalSpent = Object.entries(voterVotes)
+      .filter(([key]) => key !== 'skull')
+      .reduce((sum, [_, val]) => (typeof val === 'number' ? sum + val : sum), 0);
+
+    if (totalSpent < 6) {
+      const newVotes = { ...voterVotes };
+      newVotes[gameId] = (voterVotes[gameId] || 0) + 1;
+      setGameVotes({ ...gameVotes, [currentPlayerIndex]: newVotes });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  };
+
+  const handleRemoveToken = (gameId) => {
+    const voterVotes = gameVotes[currentPlayerIndex];
+    if (voterVotes && voterVotes[gameId] > 0) {
+      const newVotes = { ...voterVotes };
+      newVotes[gameId] = voterVotes[gameId] - 1;
+      setGameVotes({ ...gameVotes, [currentPlayerIndex]: newVotes });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+  };
+
+  const handleSkull = (gameId) => {
+    const voterVotes = gameVotes[currentPlayerIndex] || { skull: null };
+    const newVotes = { ...voterVotes };
+    newVotes.skull = voterVotes.skull === gameId ? null : gameId;
+    setGameVotes({ ...gameVotes, [currentPlayerIndex]: newVotes });
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+  };
+
+  const confirmVote = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (currentPlayerIndex < players.length - 1) {
+      setScreen('passPhone');
+    } else {
+      setScreen('placeholder'); 
+    }
+  };
+
+  // --- 4. RENDERING ---
+
+  // SCHERMATA PASSAGGIO (FULL COLOR)
+  if (screen === 'passPhone') {
+    // Se non hanno ancora votato (voti vuoti per l'indice attuale), è il primo turno
+    const targetPlayer = gameVotes[currentPlayerIndex] ? players[currentPlayerIndex + 1] : players[currentPlayerIndex];
+    return (
+      <TouchableOpacity 
+        activeOpacity={1} 
+        style={[styles.container, { backgroundColor: targetPlayer.color.bg, justifyContent: 'center', alignItems: 'center' }]}
+        onPress={() => {
+          if (gameVotes[currentPlayerIndex]) setCurrentPlayerIndex(currentPlayerIndex + 1);
+          setScreen('voting');
+        }}
+      >
+        <Text style={{ color: targetPlayer.color.text, fontSize: 18, opacity: 0.8, marginBottom: 10 }}>TOCCA A:</Text>
+        <Text style={{ color: targetPlayer.color.text, fontSize: 42, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 }}>
+          {targetPlayer.customName || targetPlayer.defaultName}
+        </Text>
+        <Text style={{ color: targetPlayer.color.text, fontSize: 16, marginTop: 40, opacity: 0.7 }}>TOCCA LO SCHERMO PER INIZIARE A VOTARE</Text>
+      </TouchableOpacity>
+    );
+  }
+
+  // SCHERMATA VOTING
+  if (screen === 'voting') {
+    const currentPlayer = players[currentPlayerIndex];
+    const voterVotes = gameVotes[currentPlayerIndex] || { skull: null };
+    const totalSpent = Object.entries(voterVotes)
+      .filter(([key]) => key !== 'skull')
+      .reduce((sum, [_, val]) => (typeof val === 'number' ? sum + val : sum), 0);
+
+    return (
+      <View style={styles.container}>
+        <View style={[styles.galleryHeader, { marginTop: 40 }]}>
+          <View>
+            <Text style={{ color: currentPlayer.color.bg, fontWeight: 'bold', fontSize: 14 }}>GIOCATORE:</Text>
+            <Text style={{ color: '#fff', fontSize: 24, fontWeight: 'bold' }}>{currentPlayer.customName || currentPlayer.defaultName}</Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={{ color: '#fff', opacity: 0.6 }}>TOKEN</Text>
+            <Text style={{ color: totalSpent === 6 ? '#adf222' : '#fff', fontSize: 22, fontWeight: 'bold' }}>{totalSpent}/6</Text>
+          </View>
+        </View>
+
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 15, paddingBottom: 150 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+            {games.map((game) => {
+              const tokens = voterVotes[game.id] || 0;
+              const hasSkull = voterVotes.skull === game.id;
+              return (
+                <View key={game.id} style={styles.gridItem}>
+                  <TouchableOpacity activeOpacity={1} onPress={() => handleAddToken(game.id)} onLongPress={() => handleSkull(game.id)} style={{ flex: 1 }}>
+                    <Image source={{ uri: game.uri }} style={styles.gridImage} />
+                    <View style={styles.tokenContainer}>
+                      {hasSkull && <Text style={{ fontSize: 40, position: 'absolute', top: 10, zIndex: 10 }}>💀</Text>}
+                      <View style={styles.tokensGrid}>
+                        {Array.from({ length: tokens }).map((_, i) => (
+                          <TouchableOpacity 
+                            key={i} 
+                            onPress={() => handleRemoveToken(game.id)}
+                            style={[styles.tokenDotLarge, { backgroundColor: currentPlayer.color.bg, marginTop: i * 4, marginLeft: i * 4 }]} 
+                          />
+                        ))}
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+          </View>
+        </ScrollView>
+        <View style={styles.fixedBottomButton}>
+          <TouchableOpacity 
+            style={[styles.buttonLarge, { backgroundColor: totalSpent === 6 ? '#2563eb' : '#374151', marginTop: 0 }]} 
+            disabled={totalSpent < 6} 
+            onPress={confirmVote}
+          >
+            <Text style={styles.buttonText}>{currentPlayerIndex < players.length - 1 ? 'FATTO' : 'TERMINA'}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  if (screen === 'addGames') {
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <View style={styles.container}>
+          {viewMode === 'camera' ? (
+            <View style={{ flex: 1, backgroundColor: '#111827', alignItems: 'center' }}>
+              {/* ANTEPRIMA RISTRETTA */}
+              <View style={{ 
+                width: width * 0.9, 
+                height: width * 0.9, 
+                marginTop: 100,
+                overflow: 'hidden', 
+                borderRadius: 25,
+                transform: [{ scale: isShuttering ? 0.95 : 1 }],
+                backgroundColor: '#000'
+              }}>
+                <CameraView ref={cameraRef} style={{ flex: 1 }} flash="off" animateShutter={false}>
+                  <View style={styles.cameraOverlay} />
+                </CameraView>
+              </View>
+
+              {/* BARRA COMANDI FOTOCAMERA */}
+              <View style={[styles.fixedBottomBarClean, { bottom: 240 }]}>
+                <View style={styles.cameraBottomBarClean}>
+                  <View style={{ width: 60 }} />
+                  <TouchableOpacity style={styles.captureBtn} onPress={capturePhoto}>
+                    <View style={styles.captureBtnInternal} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.galleryIconBtn} onPress={() => setViewMode('gallery')}>
+                    <View style={[styles.badge, { transform: [{ scale: isSaving ? 1.2 : 1 }] }]}>
+                      {isSaving ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.badgeText}>{games.length}</Text>
+                      )}
+                    </View>
+                    <View style={styles.galleryCircle}>
+                      <Text style={{ fontSize: 24 }}>🖼️</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          ) : (
+            <View style={{ flex: 1, paddingTop: 60 }}>
+              <View style={styles.galleryHeader}>
+                <TouchableOpacity onPress={() => setViewMode('camera')} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <AntDesign name="arrow-left" size={20} color="white" />
+                  <Entypo name="camera" size={26} color="white" />
+                </TouchableOpacity>
+                <Text style={{ color: '#fff', fontWeight: 'bold' }}>ELEMENTI: {games.length}</Text>
+              </View>
+
+              <DraggableFlatList
+                data={games}
+                onDragEnd={({ data }) => {
+                  setGames(data);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
+                keyExtractor={(item) => item.id}
+                numColumns={2}
+                columnWrapperStyle={{ justifyContent: 'space-between', paddingHorizontal: 15 }}
+                renderItem={({ item, drag, isActive }) => (
+                  <ScaleDecorator>
+                    <TouchableOpacity
+                      onLongPress={drag}
+                      activeOpacity={1}
+                      style={[styles.gridItem, { opacity: isActive ? 0.3 : 1 }]}
+                    >
+                      <Image source={{ uri: item.uri }} style={styles.gridImage} />
+                      <TouchableOpacity onPress={() => deletePhoto(item.id)} style={styles.deleteBadge}>
+                        <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>✕</Text>
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  </ScaleDecorator>
+                )}
+              />
+              <LinearGradient colors={['transparent', '#111827']} style={styles.bottomGalleryGradient} pointerEvents="none" />
+            </View>
+          )}
+
+          {/* TASTO FATTO FISSO IN BASSO (stessa altezza delle altre schermate) */}
+          <View style={{ position: 'absolute', bottom: 140, width: '100%', alignItems: 'center', zIndex: 100 }}>
+            <TouchableOpacity 
+              style={[styles.buttonLarge, games.length === 0 && { opacity: 0.5 }, { marginTop: 0 }]} 
+              onPress={() => setScreen('passPhone')} 
+              disabled={games.length < 1}
+            >
+              <Text style={styles.buttonText}>FATTO</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </GestureHandlerRootView>
+    );
+  }
+
+  // SCREEN SELECT NUMBER
+  if (screen === 'selectNumber') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.center}>
+          <Text style={styles.title}>SELEZIONA</Text>
+          <Text style={styles.title}>NUMERO GIOCATORI</Text>
+          <View style={styles.pickerContainer}>
+            <LinearGradient colors={['transparent', '#ffffff', 'transparent']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={[styles.selectionLine, { top: ITEM_HEIGHT * 2 }]} />
+            <LinearGradient colors={['transparent', '#ffffff', 'transparent']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={[styles.selectionLine, { top: ITEM_HEIGHT * 3 }]} />
+            <ScrollView 
+              snapToInterval={ITEM_HEIGHT} decelerationRate="fast" showsVerticalScrollIndicator={false}
+              onScroll={(e) => {
+                const index = Math.round(e.nativeEvent.contentOffset.y / ITEM_HEIGHT);
+                if (numbers[index] !== undefined && numbers[index] !== selectedNumber) {
+                  setSelectedNumber(numbers[index]);
+                  Haptics.selectionAsync();
+                }
+              }}
+              contentContainerStyle={{ paddingTop: ITEM_HEIGHT * 1.9, paddingBottom: ITEM_HEIGHT * 2.05 }}
+              style={styles.scrollViewStyle}
+            >
+              {numbers.map((num) => (
+                <View key={num} style={{ height: ITEM_HEIGHT, justifyContent: 'center' }}>
+                  <Text style={[styles.numberText, selectedNumber === num ? styles.numberSelected : styles.numberUnselected]}>{num}</Text>
+                </View>
+              ))}
+            </ScrollView>
+            <LinearGradient colors={['#111827', 'rgba(17, 24, 39, 0)']} style={[styles.gradientMask, { top: 0 }]} pointerEvents="none" />
+            <LinearGradient colors={['rgba(17, 24, 39, 0)', '#111827']} style={[styles.gradientMask, { bottom: 0 }]} pointerEvents="none" />
+          </View>
+          <TouchableOpacity style={styles.buttonLarge} onPress={handleStartVoting}><Text style={styles.buttonText}>AVANTI</Text></TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // SCREEN SHOW PLAYERS
+  // SCHERMATA: SHOW PLAYERS
+ if (screen === 'showPlayers') {
+  return (
+    <View style={styles.container}>
+      
+      {/* 1. IL BLOCCO CIECO (Copre lo stretch superiore) */}
+      <View style={{
+        position: 'absolute',
+        top: -100, 
+        left: 0,
+        right: 0,
+        height: 200, // Copre fino a 100px sotto il limite
+        backgroundColor: '#111827',
+        zIndex: 100,
+      }} />
+
+      {/* 2. SFUMATURA SUPERIORE (Sotto il blocco cieco) */}
+      {players.length >= 6 && (
+        <LinearGradient
+          colors={['#111827', 'transparent']}
+          style={{ position: 'absolute', top: 100, left: 0, right: 0, height: 60, zIndex: 90 }}
+          pointerEvents="none"
+        />
+      )}
+
+      {/* 3. LISTA (Tutta la pagina trascina) */}
+      <ScrollView 
+  style={{ flex: 1, marginTop: 30 }} 
+  // Se i giocatori sono meno di 6, lo scroll viene disattivato
+  scrollEnabled={players.length >= 6} 
+  contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 120, paddingBottom: 150 }}
+  showsVerticalScrollIndicator={false}
+  keyboardShouldPersistTaps="always"
+>
+        {players.map((player, index) => (
+          <View key={index} style={[styles.playerRow, { backgroundColor: player.color.bg }]}>
+            <TextInput
+              ref={(el) => (inputRefs.current[index] = el)}
+              style={[styles.playerInput, { color: player.color.text, textAlign: 'left', flex: 1 }]}
+              placeholder={player.defaultName}
+              placeholderTextColor="rgb(255, 255, 255)" // Lasciato come lo avevi tu
+              value={player.customName}
+              onChangeText={(text) => {
+                const newPlayers = [...players];
+                newPlayers[index].customName = text;
+                setPlayers(newPlayers);
+              }}
+            />
+            
+            {/* BOTTONE MATITA (Unica zona che attiva l'input) */}
+            <TouchableOpacity 
+              onPress={() => inputRefs.current[index].focus()} 
+              style={{ paddingHorizontal: 15, paddingVertical: 10 }}
+            >
+              <Text style={{ color: player.color.text, fontSize: 22, opacity: 0.8, transform: [{ scaleX: -1 }] }}>
+                ✎
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ))}
+      </ScrollView>
+
+      {/* 4. SFUMATURA INFERIORE */}
+      {players.length >= 6 && (
+        <LinearGradient
+          colors={['transparent', '#111827']}
+          style={{ position: 'absolute', bottom: 220, left: 0, right: 0, height: 60, zIndex: 90 }}
+          pointerEvents="none"
+        />
+      )}
+
+      {/* 5. AREA TASTO AVANTI */}
+      <View style={{ paddingBottom: 140, alignItems: 'center', zIndex: 110 }}>
+        <TouchableOpacity style={styles.buttonLarge} onPress={() => setScreen('addGames')}>
+          <Text style={styles.buttonText}>AVANTI</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+  // PLACEHOLDER RISULTATI
+  if (screen === 'placeholder') {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <Text style={styles.header}>🏆 RISULTATI</Text>
+        <TouchableOpacity style={styles.buttonLarge} onPress={() => setScreen('selectNumber')}><Text style={styles.buttonText}>RICOMINCIA</Text></TouchableOpacity>
+      </View>
+    );
+  }
+
+  return null;
+}
+
+// STILI
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#111827', paddingTop: 20 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header: { fontSize: 22, color: '#fff', textAlign: 'center', fontWeight: 'bold', marginBottom: 20 },
+  title: { fontSize: 24, color: '#fff', fontWeight: 'bold', marginBottom: 5 },
+  numberText: { textAlign: 'center' },
+  numberUnselected: { color: '#ffffff', fontSize: 32, opacity: 0.5 },
+  numberSelected: { color: '#ffffff', fontSize: 52, fontWeight: 'bold' },
+  pickerContainer: { height: ITEM_HEIGHT * 5, width: '100%', marginVertical: 20, justifyContent: 'center', alignItems: 'center', position: 'relative' },
+  scrollViewStyle: { width: '100%', flexGrow: 0 },
+  selectionLine: { position: 'absolute', height: 2, width: '60%', zIndex: 1 },
+  gradientMask: { position: 'absolute', left: 0, right: 0, height: ITEM_HEIGHT * 1.5, zIndex: 2 },
+  playerRow: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 15, marginBottom: 12, flexDirection: 'row', alignItems: 'center' },
+  playerInput: { flex: 1, fontSize: 18, fontWeight: 'bold' },
+  buttonLarge: { backgroundColor: '#2563eb', paddingVertical: 18, borderRadius: 15, width: '80%', marginTop: 20 },
+  buttonText: { color: '#fff', textAlign: 'center', fontWeight: 'bold', fontSize: 18 },
+  cameraOverlay: { flex: 1, justifyContent: 'flex-start', alignItems: 'center', paddingTop: 20 },
+  fixedBottomBarClean: { position: 'absolute', bottom: 0, width: '80%', backgroundColor: 'transparent' },
+  cameraBottomBarClean: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingBottom: 20 },
+  captureBtn: { width: 80, height: 80, borderRadius: 40, borderWidth: 5, borderColor: '#fff', justifyContent: 'center', alignItems: 'center' },
+  captureBtnInternal: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#fff' },
+  galleryIconBtn: { alignItems: 'center', width: 60 },
+  galleryCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' },
+  badge: { position: 'absolute', top: -5, right: -5, backgroundColor: '#ef4444', borderRadius: 11, width: 22, height: 22, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4, zIndex: 10 },
+  badgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold', textAlign: 'center' },
+  gridItem: { width: COLUMN_WIDTH, height: 180, marginBottom: 20, borderRadius: 15, backgroundColor: '#1f2937' },
+  gridImage: { width: '100%', height: '100%', borderRadius: 15 },
+  deleteBadge: { position: 'absolute', top: 10, right: 10, backgroundColor: '#ef4444', width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center', zIndex: 20 },
+  galleryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 25, marginBottom: 25 },
+  bottomGalleryGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 250, zIndex: 10 },
+  moveControlsOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 40, backgroundColor: 'rgba(0,0,0,0.4)', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 15, alignItems: 'center', borderBottomLeftRadius: 15, borderBottomRightRadius: 15 },
+  arrow: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  // STILI VOTING
+  tokenContainer: { position: 'absolute', inset: 0, justifyContent: 'center', alignItems: 'center' },
+  tokensGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '80%' },
+  tokenDotLarge: { width: 34, height: 34, borderRadius: 17, borderWidth: 2, borderColor: '#fff', elevation: 8, shadowColor: '#000', shadowOffset: {width: 0, height: 3}, shadowOpacity: 0.5, shadowRadius: 4 },
+  fixedBottomButton: { position: 'absolute', bottom: 30, width: '100%', alignItems: 'center' },
+});

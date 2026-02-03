@@ -1,0 +1,434 @@
+// IMPORT
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as SplashScreen from 'expo-splash-screen';
+import { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  BackHandler,
+  Dimensions,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
+const { width, height } = Dimensions.get('window');
+const ITEM_HEIGHT = 70;
+
+// APP ----------------------------------------------------------------------------------------
+
+export default function App() {
+  // --- 1. STATI (HOOKS) ---
+  const [screen, setScreen] = useState('selectNumber');
+  const [selectedNumber, setSelectedNumber] = useState(2);
+  const [players, setPlayers] = useState([]);
+  const [games, setGames] = useState([]);
+  const [viewMode, setViewMode] = useState('camera');
+  
+  const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
+  const [gameVotes, setGameVotes] = useState({});
+  const [tokensUsed, setTokensUsed] = useState(0);
+
+  const inputRefs = useRef([]);
+  const cameraRef = useRef(null);
+  const [isShuttering, setIsShuttering] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
+  
+  // --- 2. EFFETTI ---
+  useEffect(() => {
+    SplashScreen.hideAsync().catch(() => {});
+    const backAction = () => {
+      if (screen === 'showPlayers') { setScreen('selectNumber'); return true; }
+      if (screen === 'addGames') { setScreen('showPlayers'); return true; }
+      return false;
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => backHandler.remove();
+  }, [screen]);
+
+  // --- 3. LOGICA ---
+  const colors = [
+    { bg: '#EF4444', text: '#FFFFFF' }, { bg: '#ffcc00', text: '#FFFFFF' },
+    { bg: '#1e4cd6', text: '#FFFFFF' }, { bg: '#adf222', text: '#FFFFFF' },
+    { bg: '#ff6a00', text: '#FFFFFF' }, { bg: '#66d4b0', text: '#FFFFFF' },
+    { bg: '#eb8aff', text: '#FFFFFF' }, { bg: '#3b1a89', text: '#FFFFFF' },
+    { bg: '#f72c91', text: '#FFFFFF' }, { bg: '#06B6D4', text: '#FFFFFF' },
+  ];
+
+  const numbers = Array.from({ length: 9 }, (_, i) => i + 2);
+
+  const handleStartVoting = () => {
+    const newPlayers = Array.from({ length: selectedNumber }, (_, i) => ({
+      defaultName: `Giocatore ${i + 1}`,
+      customName: '',
+      color: colors[i % colors.length]
+    }));
+    setPlayers(newPlayers);
+    setScreen('showPlayers');
+  };
+
+  const capturePhoto = async () => {
+    if (cameraRef.current) {
+      // Vibrazione immediata
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setIsShuttering(true);
+      setTimeout(() => setIsShuttering(false), 150);
+      setIsSaving(true);
+
+      try {
+        const photo = await cameraRef.current.takePictureAsync({ 
+          shutterSound: false, 
+        flash: 'off', 
+        quality: 0.2,            // Qualità bassa = file piccolo = scrittura lampo
+        skipHalos: true,         // Salta algoritmi di correzione extra
+        exif: false,
+        });
+
+        // Salva la foto
+      
+        setGames(prev => [...prev, { id: Date.now().toString(), uri: photo.uri }]);
+      
+        setIsSaving(false);
+      } catch (e) {
+        console.log("Errore scatto:", e);
+        setIsShuttering(false);
+      }
+    }
+  };
+
+  const deletePhoto = (id) => {
+    setGames(games.filter(g => g.id !== id));
+  };
+
+  const moveGame = (index, direction) => {
+    const newGames = [...games];
+    const item = newGames.splice(index, 1)[0];
+    newGames.splice(index + direction, 0, item);
+    setGames(newGames);
+  };
+
+  // --- 4. RENDERING SCHERMATE ---
+
+  if (screen === 'addGames') {
+    if (viewMode === 'camera') {
+      return (
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <View style={{ 
+            flex: 1, 
+            overflow: 'hidden', 
+            transform: [{ scale: isShuttering ? 0.95 : 1 }],
+            borderRadius: isShuttering ? 20 : 0
+          }}>
+            <CameraView ref={cameraRef} style={{ flex: 1 }} flash="off" animateShutter={false}>
+              <View style={styles.cameraOverlay} />
+            </CameraView>
+          </View>
+
+          {/* BARRA CONTROLLI PULITA (Senza sfondo semitrasparente) */}
+          <View style={styles.fixedBottomBarClean}>
+            <View style={styles.cameraBottomBarClean}>
+              <View style={{ width: 60 }} />
+              
+              <TouchableOpacity style={styles.captureBtn} onPress={capturePhoto}>
+                <View style={styles.captureBtnInternal} />
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+  style={styles.galleryIconBtn} 
+  onPress={() => setViewMode('gallery')}
+>
+  {/* Badge con numero o Animazione Caricamento */}
+  <View style={[
+    styles.badge, 
+    { transform: [{ scale: isSaving ? 1.2 : 1 }] }
+  ]}>
+    {isSaving ? (
+      <ActivityIndicator size="small" color="#FFFFFF" />
+    ) : (
+      <Text style={styles.badgeText}>
+        {games.length}
+      </Text>
+    )}
+  </View>
+  
+  {/* Icona Galleria circolare */}
+  <View style={styles.galleryCircle}>
+    <Text style={{fontSize: 24}}>🖼️</Text>
+  </View>
+</TouchableOpacity>
+            </View>
+
+            <View style={{ alignItems: 'center', paddingBottom: 60 }}>
+              <TouchableOpacity 
+                style={[styles.buttonLarge, games.length === 0 && { opacity: 0.5 }]} 
+                onPress={() => setScreen('placeholder')}
+                disabled={games.length < 1}
+              >
+                <Text style={styles.buttonText}>FATTO</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      );
+    }
+
+    // GALLERIA A GRIGLIA
+    return (
+      <View style={[styles.container, { paddingTop: 60 }]}>
+        <View style={styles.galleryHeader}>
+          <TouchableOpacity onPress={() => setViewMode('camera')}>
+            <Text style={{ color: '#3b82f6', fontSize: 18 }}>← Fotocamera</Text>
+          </TouchableOpacity>
+          <Text style={{ color: '#fff', fontWeight: 'bold' }}>GIOCHI ({games.length})</Text>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.gridContainer}>
+          {games.map((game, index) => (
+            <View key={game.id} style={styles.gridItem}>
+              <Image source={{ uri: game.uri }} style={styles.gridImage} />
+              <View style={styles.gridActions}>
+                <TouchableOpacity onPress={() => deletePhoto(game.id)} style={styles.gridDeleteBtn}>
+                  <Text style={{ color: '#fff', fontSize: 12 }}>X</Text>
+                </TouchableOpacity>
+                <View style={styles.gridMoveButtons}>
+                  <TouchableOpacity onPress={() => moveGame(index, -1)} disabled={index === 0}>
+                    <Text style={[styles.arrow, index === 0 && {opacity: 0}]}>◀️</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => moveGame(index, 1)} disabled={index === games.length - 1}>
+                    <Text style={[styles.arrow, index === games.length - 1 && {opacity: 0}]}>▶️</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // SCHERMATA: PLACEHOLDER (Placeholder temporaneo)
+  if (screen === 'placeholder') {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <Text style={[styles.header, { marginBottom: 10 }]}>🚧 WORK IN PROGRESS</Text>
+        <Text style={{ color: '#9ca3af', textAlign: 'center', paddingHorizontal: 40, marginBottom: 30 }}>
+          Non hai ancora programmato qui. Stiamo preparando la logica per i 6 token!
+        </Text>
+        
+        <TouchableOpacity 
+          style={[styles.buttonLarge, { backgroundColor: '#4b5563' }]} 
+          onPress={() => setScreen('addGames')}
+        >
+          <Text style={styles.buttonText}>TORNA AI GIOCHI</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // --- SCHERMATA: SHOW PLAYERS (Corretta) ---
+if (screen === 'showPlayers') {
+  return (
+    <View style={styles.container}>
+      
+      {/* 1. IL BLOCCO CIECO (Copre lo stretch superiore) */}
+      <View style={{
+        position: 'absolute',
+        top: -100, 
+        left: 0,
+        right: 0,
+        height: 200, 
+        backgroundColor: '#111827',
+        zIndex: 100,
+      }} />
+
+      {/* 2. SFUMATURA SUPERIORE */}
+      {players.length >= 6 && (
+        <LinearGradient
+          colors={['#111827', 'transparent']}
+          style={{ position: 'absolute', top: 100, left: 0, right: 0, height: 60, zIndex: 90 }}
+          pointerEvents="none"
+        />
+      )}
+
+      {/* 3. LISTA (Padding ridotto per evitare lo scroll infinito) */}
+      <ScrollView 
+        style={{ flex: 1, marginTop: 30 }} 
+        scrollEnabled={players.length >= 6} 
+        contentContainerStyle={{ 
+          paddingHorizontal: 20, 
+          paddingTop: 120, 
+          paddingBottom: 40 // Ridotto da 150 a 40 per limitare lo scroll
+        }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="always"
+      >
+        {players.map((player, index) => (
+          <View key={index} style={[styles.playerRow, { backgroundColor: player.color.bg }]}>
+            <TextInput
+              ref={(el) => (inputRefs.current[index] = el)}
+              style={[styles.playerInput, { color: player.color.text, textAlign: 'left', flex: 1 }]}
+              placeholder={player.defaultName}
+              placeholderTextColor="rgba(255, 255, 255, 0.7)"
+              value={player.customName}
+              onChangeText={(text) => {
+                const newPlayers = [...players];
+                newPlayers[index].customName = text;
+                setPlayers(newPlayers);
+              }}
+            />
+            <TouchableOpacity 
+              onPress={() => inputRefs.current[index].focus()} 
+              style={{ paddingHorizontal: 15, paddingVertical: 10 }}
+            >
+              <Text style={{ color: player.color.text, fontSize: 22, opacity: 0.8, transform: [{ scaleX: -1 }] }}>
+                ✎
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ))}
+      </ScrollView>
+
+      {/* 4. SFUMATURA INFERIORE (Spostata per matchare il nuovo padding) */}
+      {players.length >= 6 && (
+        <LinearGradient
+          colors={['transparent', '#111827']}
+          style={{ position: 'absolute', bottom: 120, left: 0, right: 0, height: 60, zIndex: 90 }}
+          pointerEvents="none"
+        />
+      )}
+
+      {/* 5. AREA TASTO AVANTI (Posizionamento più compatto) */}
+      <View style={{ paddingBottom: 40, alignItems: 'center', zIndex: 110 }}>
+        <TouchableOpacity style={styles.buttonLarge} onPress={() => setScreen('addGames')}>
+          <Text style={styles.buttonText}>AVANTI</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+  // SCHERMATA: SELECT NUMBER
+  if (screen === 'selectNumber') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.center}>
+          <Text style={styles.title}>SELEZIONA</Text>
+          <Text style={styles.title}>NUMERO GIOCATORI</Text>
+
+          <View style={styles.pickerContainer}>
+            {/* Linee di selezione bianche sfumate */}
+            <LinearGradient
+              colors={['transparent', '#ffffff', 'transparent']}
+              start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }}
+              style={[styles.selectionLine, { top: ITEM_HEIGHT * 2 }]}
+            />
+            <LinearGradient
+              colors={['transparent', '#ffffff', 'transparent']}
+              start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }}
+              style={[styles.selectionLine, { top: ITEM_HEIGHT * 3 }]}
+            />
+            
+            <ScrollView 
+  snapToInterval={ITEM_HEIGHT} 
+  decelerationRate="fast"
+  showsVerticalScrollIndicator={false}
+  scrollEventThrottle={16}
+  onScroll={(e) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const index = Math.round(y / ITEM_HEIGHT);
+    
+    if (numbers[index] !== undefined && numbers[index] !== selectedNumber) {
+      setSelectedNumber(numbers[index]);
+      // Il feedback più leggero in assoluto (tipo "click" di un orologio)
+      Haptics.selectionAsync();
+    }
+  }}
+  contentContainerStyle={{ 
+    paddingTop: ITEM_HEIGHT * 1.9,    
+    paddingBottom: ITEM_HEIGHT * 2.05 
+  }}
+  style={styles.scrollViewStyle}
+>
+              {numbers.map((num) => {
+                const isSelected = selectedNumber === num;
+                return (
+                  <View key={num} style={{ height: ITEM_HEIGHT, justifyContent: 'center' }}>
+                    <Text style={[
+                      styles.numberText, 
+                      isSelected ? styles.numberSelected : styles.numberUnselected
+                    ]}>
+                      {num}
+                    </Text>
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            {/* Maschere di sfumatura per nascondere i numeri sopra e sotto */}
+            <LinearGradient
+              colors={['#111827', 'rgba(17, 24, 39, 0)']}
+              style={[styles.gradientMask, { top: 0 }]}
+              pointerEvents="none"
+            />
+            <LinearGradient
+              colors={['rgba(17, 24, 39, 0)', '#111827']}
+              style={[styles.gradientMask, { bottom: 0 }]}
+              pointerEvents="none"
+            />
+          </View>
+
+          <TouchableOpacity style={styles.buttonLarge} onPress={handleStartVoting}>
+            <Text style={styles.buttonText}>AVANTI</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+}
+
+  return null;
+}
+
+
+// STILI --------------------------------------------------------------------------------------
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#111827', paddingTop: 20 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header: { fontSize: 22, color: '#fff', textAlign: 'center', fontWeight: 'bold', marginBottom: 20 },
+  title: { fontSize: 24, color: '#fff', fontWeight: 'bold', marginBottom: 5 },
+  numberText: { textAlign: 'center' },
+  numberUnselected: { color: '#ffffff', fontSize: 32, opacity: 0.5 },
+  numberSelected: { color: '#ffffff', fontSize: 52, fontWeight: 'bold' },
+  pickerContainer: { height: ITEM_HEIGHT * 5, width: '100%', marginVertical: 20, justifyContent: 'center', alignItems: 'center', position: 'relative' },
+  scrollViewStyle: { width: '100%', flexGrow: 0 },
+  selectionLine: { position: 'absolute', height: 2, width: '60%', zIndex: 1 },
+  gradientMask: { position: 'absolute', left: 0, right: 0, height: ITEM_HEIGHT * 1.5, zIndex: 2 },
+  playerRow: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 15, marginBottom: 12, flexDirection: 'row', alignItems: 'center' },
+  playerInput: { flex: 1, fontSize: 18, fontWeight: 'bold' },
+  buttonLarge: { backgroundColor: '#2563eb', paddingVertical: 18, borderRadius: 15, width: '80%', marginTop: 20 },
+  buttonText: { color: '#fff', textAlign: 'center', fontWeight: 'bold', fontSize: 18 },
+  cameraOverlay: { flex: 1, justifyContent: 'flex-start', alignItems: 'center', paddingTop: 20 },
+  fixedBottomBarClean: { position: 'absolute', bottom: 0, width: '100%', backgroundColor: 'transparent' },
+  cameraBottomBarClean: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingBottom: 20 },
+  captureBtn: { width: 80, height: 80, borderRadius: 40, borderWidth: 5, borderColor: '#fff', justifyContent: 'center', alignItems: 'center' },
+  captureBtnInternal: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#fff' },
+  galleryIconBtn: { alignItems: 'center', width: 60 },
+  galleryCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' },
+  badge: { position: 'absolute', top: -5, right: -5, backgroundColor: '#ef4444', borderRadius: 11, width: 22, height: 22, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4, zIndex: 10 },
+  badgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold', textAlign: 'center' },
+  galleryHeader: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, marginBottom: 20 },
+  gridContainer: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 10, justifyContent: 'space-between' },
+  gridItem: { width: (width / 2) - 20, height: 180, marginBottom: 20, borderRadius: 12, overflow: 'hidden', backgroundColor: '#1f2937' },
+  gridImage: { width: '100%', height: '100%' },
+  gridActions: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, flexDirection: 'row', justifyContent: 'space-between' },
+  gridDeleteBtn: { backgroundColor: '#ef4444', width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
+  gridMoveButtons: { flexDirection: 'row', gap: 10 },
+  arrow: { fontSize: 18 }
+});

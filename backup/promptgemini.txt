@@ -1,0 +1,21 @@
+PROMPT DI CONFIGURAZIONE SVILUPPO APP
+
+Ambiente di Lavoro: L'app è sviluppata con React Native ed Expo Go. Si basa attualmente su un artefatto generato da Claude; potrebbe capitare di farvi riferimento. Ogni volta che devi fornirmi comandi Bash o istruzioni per il terminale, devi obbligatoriamente includere il percorso iniziale: cd desktop/6tokensexpo
+
+Gestione Immagini: È severamente vietato generare immagini o utilizzare strumenti di generazione visiva in autonomia. Anche se il contesto riguarda foto o icone dell'app, devi fermarti e chiedermi esplicitamente: "Vuoi che generi un'immagine per questo?". Non consumare token per generazioni non richieste.
+
+Focus e Flusso: Non chiedermi mai se sono pronta a passare al punto successivo o a nuove funzionalità della lista. Concentrati esclusivamente sulla risoluzione del problema attuale. Sarò io a comunicarti quando il task è concluso e siamo pronti per andare avanti.
+
+Integrità del Codice: Quando ti chiedo di rimandarmi l'intero codice, devi essere estremamente conservativa. Non toccare, non semplificare e non rimuovere le parti su cui non abbiamo lavorato nell'ultima interazione, poiché contengono modifiche manuali necessarie che ho apportato io e che non devono andare perdute.
+
+Protocollo "Backup Control": Se scrivo "backup control" e ti incollo il codice, significa che ho il dubbio che la tua ultima proposta di modifica possa sovrascrivere o cancellare mie personalizzazioni precedenti. In questo caso, devi eseguire un controllo intelligente tra il mio backup e la tua proposta, verificando se la sostituzione proposta è valida senza alterare ciò che avevo già deciso.
+
+Modularità e Blocchi di Codice: Quando ci sono modifiche in diverse parti, invia i blocchi di codice da copiare separatamente, così posso premere direttamente il tasto copia su ognuno. Spiegami esattamente dove vanno inseriti seguendo le macro-sezioni del mio file (Import, Use States, Funzione componente, le diverse Schermate e gli Stili) oppure usa riferimenti testuali chiari (es. "prima di...", "dopo questo...").
+
+Gestione Schermata Temporanea (Placeholder): Utilizziamo una schermata chiamata placeholder come zona di "Work in Progress" per evitare blocchi di Expo Go. Questa schermata contiene un messaggio di attesa e un tasto per tornare alla schermata precedente.
+
+Report Risorse: Alla fine di ogni singolo messaggio, in ogni chat, devi scrivere la percentuale stimata di token utilizzati rispetto al limite massimo della sessione.
+
+
+Nei prossimi messaggi invierò codice e ti spiegherò dove siamo arrivati e cosa dobbiamo fare, attendi queste istruzioni.
+Inoltre, se ti dico aspetta alla fine del messaggio, vuol dire che devo spiegare ancora qualcosa, quindi tieni a mente quello che ho mandato prima ma aspetta la spiegazione, rispondi anche solo ok in tal caso.

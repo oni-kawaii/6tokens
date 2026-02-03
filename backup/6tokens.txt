@@ -1,0 +1,55 @@
+app per votare giochi
+
+il titolo della schermata è "aggiungi votanti"
+si apre e si imposta in quanti si vota, appare la lista con "giocatore 1, giocatore 2 ecc" volendo si mettono i nomi o senno si salta. ogni giocatore ha un colore.
+
+- premi avanti
+
+il titolo della schermata è "aggiungi giochi".
+fatto questo si aggiungono i giochi con la fotocamera (alla chiususra dell'app le foto vengono cancellate per non occupare memoria)
+si apre quindi la fotocamera e si scatta e si aggiungono i giochi fino a che non si preme "avanti"
+la schermata parte con la fotocamera aperta è impostata, ci sono i tasti visualizza e avanti 
+-premi visualizza = appare la griglia con le foto fatte finora e un icona cestino in basso centrale a ciascuna di esse per eliminarle nel caso si abbia sbagliato
+in basso icona fotocamera per  riprendere ad aggiungere altri giochi o avanti se si ha finito
+
+-premi avanti
+
+il titolo della schemrata è "votazione"
+a questo punto inizia la fase votazione del primo giocatore.. appaiono le foto della fase precedente in una griglia e funziona così:
+ci sono un massimo di 6 token(che saranno dati con i tocchi) 
+da distribuire come si vuole tra tutti i giochi ( per capirci sono divisibili o tutti e 6 in uno,
+3 token in due giochi, 2 token in 3 giochi, 3 2 e 1 , un token in 6 giochi, 3 in un gioco e 1 in altri 3.. ecc.)
+inoltre c'è un token teschio che se piazzato vale -2
+
+il meccanismo è che nella griglia si toccano i giochi che si vogliono votare e appare un pallino colorato (del colore del giocatore) secondo
+le regole dette prima.. quindi se uno cerca di mettere 7 token il settimo viene automaticamente bloccato.
+l'app consente di toccare fino a 6 volte per votare, a quel punto se tutti i token sono stati distribuiti, 
+è possibile trascinare i token psizionati oppurequando si tocca di nuovo uno che ha già dei token, se ne rimuove uno che torna disponibile da piazzare.
+i 6 token sono obbligatori sennò non si può andare avanti. 
+se si tiene premuto su un gioco è possibile piazzare il token teschio (questa azione si può fare 
+in qualuncqu momento anche dopo aver messo tutti e 6 i token, tanto è un tocco prolungato invece che singolo.
+anche questo token si può trascinare oppure se si tiene premuto sul gioco in cui si trova si rimuove.
+ricordo che il token teschio è solo uno per persona e vale -2 nel conteggio finale. non è obbligatorio posizionarlo
+
+
+-premi fatto
+
+quando si preme "fatto" si passa il telefono al prossimo giocatore che deve votare, che però non vedrà i token messi dagli altri.. 
+infatti quando si preme fatto i token vengono salvati in incognito.
+
+così via finchè hanno votato tutti i giocatori.
+
+-premi termina
+titolo schermata è "risultato"
+quando si preme "termina"(che appare quando l'ultimo giocatore ha messo tutti e 6 i suoi token), l'app annuncia il gioco.
+lo schermo diventa nero e c'è un piccolo suono di tamburi che rullano per la suspence, poi appare il gioco vincente con dei coriandoli.
+appare anche un tasto "visualizza votazioni" che fa vedere di nuovo la griglia con i token colorati ( dei diversi colori dei giocatori).
+
+regole di vincita: il gioco con maggioranza di voti vince. a parità di voti, se uno dei giochi coinvolti ha ricevuto il token teschio allora perde.
+chiaramente se entrambi ne hanno ricevuto uno allora è ancora pareggio, se uno ne ha ricevuto due e l'altro uno e perde quello che ne ha due negativi..
+comunque se rimane ancora pareggio a questo punto ha la precedenza chi ha ricevuto voti da un maggior numero di persone diverse 
+(es. gioco A ha 2 token gialli, 2 verdi e 2 blu e gioco B ha 4 gialli e 2 blu.. vince gioco A perchè più colori=giocatori hanno votato per lui)
+
+se c'è ancora pareggio l'app lo annuncia e ricomincia dalla fase "votazione", eliminando le foto dei giochi non coinvolti nel pareggio.
+
+piccoli dettagli: i tasti fatto e termina sono grigi finchè non sono soddisfatte le condizioni e dopo si colorano.
