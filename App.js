@@ -137,19 +137,24 @@ export default function App() {
   };
 
   // --- ANIMAZIONE MONETA ---
-  // --- ANIMAZIONE MONETA CORRETTA ---
   const [fallingTokens, setFallingTokens] = useState([]);
 
   const animateToken = (gameId, finalPos, rotation, tokenId, isSkull = false) => {
-    if (!finalPos || !tokenId) return;
-
     const animValue = new Animated.Value(0);
-    
-    // Calcoliamo una partenza casuale dall'alto per simulare la pioggia di monete
-    // Poiché il token è dentro un gridItem, dobbiamo compensare la distanza 
-    // partendo da un valore negativo molto alto rispetto all'asse Y
-    const startX = (Math.random() - 0.5) * width; 
-    const startY = -height; 
+
+    const side = Math.floor(Math.random() * 3); // 0: Sinistra, 1: Alto, 2: Destra
+    let startX, startY;
+
+    if (side === 0) { // Da sinistra
+      startX = -width;
+      startY = (Math.random() - 0.5) * height;
+    } else if (side === 1) { // Dall'alto
+      startX = (Math.random() - 0.5) * width;
+      startY = -height;
+    } else { // Da destra
+      startX = width;
+      startY = (Math.random() - 0.5) * height;
+    }
 
     setFallingTokens(prev => [...prev, {
       id: tokenId,
@@ -159,19 +164,17 @@ export default function App() {
       rotation,
       startX,
       startY,
-      isSkull
+      isSkull // Salviamo se è un teschio
     }]);
 
     Animated.timing(animValue, {
       toValue: 1,
-      duration: 700,
-      easing: Easing.out(Easing.back(1)), // Effetto rimbalzo all'atterraggio
+      duration: 600,
+      easing: Easing.out(Easing.quad),
       useNativeDriver: true,
     }).start(() => {
-      // Rimuovi dall'array animazione
       setFallingTokens(prev => prev.filter(t => t.id !== tokenId));
-      
-      // Rendi visibile il token statico (isLanding: false)
+
       setGameVotes(prevVotes => {
         const currentVoter = prevVotes[currentPlayerIndex];
         if (!currentVoter || !currentVoter.positions) return prevVotes;
@@ -184,15 +187,19 @@ export default function App() {
   };
 
   const handleAddTokenWithAnim = (gameId, event) => {
-    const voterVotes = gameVotes[currentPlayerIndex] || { skull: null, positions: [] };
-    const normalTokensCount = (voterVotes.positions || []).filter(t => !t.id.includes('skull')).length;
+    // Otteniamo le coordinate del tocco rispetto alla foto (0-100%)
+    const { locationX, locationY } = event.nativeEvent;
+    const touchX = (locationX / COLUMN_WIDTH) * 100;
+    const touchY = (locationY / 180) * 100; // 180 è l'altezza definita nel tuo stile gridItem
 
-    if (normalTokensCount < 6) {
-      const { locationX, locationY } = event.nativeEvent;
-      // Convertiamo il tocco in percentuale rispetto al gridItem (180h x COLUMN_WIDTH w)
-      const touchX = (locationX / COLUMN_WIDTH) * 100;
-      const touchY = (locationY / 180) * 100;
-      handleAddToken(gameId, touchX, touchY);
+    const voterVotes = gameVotes[currentPlayerIndex] || { skull: null, positions: [] };
+    const totalSpent = Object.entries(voterVotes)
+      .filter(([key]) => key !== 'skull' && key !== 'positions')
+      .reduce((sum, [_, val]) => (typeof val === 'number' ? sum + val : sum), 0);
+
+    if (totalSpent < 6) { //metti 600 per debug
+      animateToken(gameId);
+      handleAddToken(gameId, touchX, touchY); // Passiamo il punto del tocco
     }
   };
 
@@ -301,6 +308,19 @@ export default function App() {
     }));
   };
 
+  const handleResetNormalTokens = () => {
+    const voterVotes = gameVotes[currentPlayerIndex];
+    if (voterVotes && voterVotes.positions) {
+      const newVotes = { ...voterVotes };
+      // Teniamo solo il teschio se presente
+      newVotes.positions = voterVotes.positions.filter(t => t.id.includes('skull'));
+      // Azzera i contatori numerici dei giochi
+      games.forEach(game => { newVotes[game.id] = 0; });
+      setGameVotes({ ...gameVotes, [currentPlayerIndex]: newVotes });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  };
+
   const handleRemoveToken = (tokenId, gameId) => {
     const voterVotes = gameVotes[currentPlayerIndex];
     if (voterVotes && voterVotes.positions) {
@@ -320,19 +340,6 @@ export default function App() {
 
       setGameVotes({ ...gameVotes, [currentPlayerIndex]: newVotes });
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-  };
-
-  const handleResetNormalTokens = () => {
-    const voterVotes = gameVotes[currentPlayerIndex];
-    if (voterVotes && voterVotes.positions) {
-      const newVotes = { ...voterVotes };
-      // Teniamo solo il teschio se presente
-      newVotes.positions = voterVotes.positions.filter(t => t.id.includes('skull'));
-      // Azzera i contatori numerici dei giochi
-      games.forEach(game => { newVotes[game.id] = 0; });
-      setGameVotes({ ...gameVotes, [currentPlayerIndex]: newVotes });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
   };
 
@@ -372,131 +379,197 @@ export default function App() {
   // SCHERMATA VOTING
   if (screen === 'voting') {
     const currentPlayer = players[currentPlayerIndex];
-    const voterVotes = gameVotes[currentPlayerIndex] || { skull: null, positions: [] };
+    const voterVotes = gameVotes[currentPlayerIndex] || { skull: null };
+
     const currentPositions = voterVotes.positions || [];
     const normalTokensPlaced = currentPositions.filter(t => !t.id.includes('skull')).length;
     const skullToken = currentPositions.find(t => t.id.includes('skull'));
 
+    const totalSpent = Object.entries(voterVotes)
+      .filter(([key]) => key !== 'skull')
+      .reduce((sum, [_, val]) => (typeof val === 'number' ? sum + val : sum), 0);
+
     return (
-      <View style={styles.container}>
+
+      <View style={{ flex: 1, backgroundColor: '#111827' }}>
         {/* HEADER RIPRISTINATO SECONDO TUE INDICAZIONI */}
         <View style={{
           backgroundColor: currentPlayer.color.bg,
           height: 50,
           marginBottom: 80,
           alignItems: 'center',
-          zIndex: 10,
-          position: 'relative'
+          position: 'relative',
+          zIndex: 1
         }}>
-          <View style={[styles.tabLabel, { backgroundColor: currentPlayer.color.bg }]}>
+          {/* RETTANGOLO (TabLabel) - Ora "appeso" alla linea bianca */}
+          <View style={{
+            position: 'absolute',
+            top: 50, // Inizia esattamente dove finisce l'header bianco
+            backgroundColor: currentPlayer.color.bg,
+            paddingHorizontal: 30,
+            paddingVertical: 10,
+            borderBottomLeftRadius: 20,
+            borderBottomRightRadius: 20,
+            flexDirection: 'row',
+            alignItems: 'flex-start', // Allineamento verticale a TOP del testo
+            justifyContent: 'center',
+            minWidth: 60,
+            zIndex: 1
+          }}>
 
-            {/* RACCORDO SINISTRO ALLUNGATO */}
-            <View style={[styles.inverseCurve, { left: -35.5, width: 40, backgroundColor: currentPlayer.color.bg, top: 9 }]}>
-              <View style={[styles.curveHole, { width: 40, borderTopRightRadius: 30, backgroundColor: '#111827' }]} />
+            {/* RACCORDO SINISTRO - Ancorato all'angolo alto-sinistro del rettangolo grigio */}
+            <View style={{
+              position: 'absolute',
+              top: 0,
+              left: -39, // Si sposta a sinistra di tutta la sua larghezza
+              width: 39,
+              height: 25,
+              backgroundColor: currentPlayer.color.bg, // Deve essere uguale al rettangolo
+            }}>
+              <View style={{
+                flex: 1,
+                borderTopRightRadius: 30,
+                backgroundColor: '#111827' // Deve essere uguale allo sfondo esterno
+              }} />
             </View>
 
             <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>
               {currentPlayer.customName || currentPlayer.defaultName}
             </Text>
 
-            {/* RACCORDO DESTRO ALLUNGATO */}
-            <View style={[styles.inverseCurve, { right: -35.5, width: 40, backgroundColor: currentPlayer.color.bg, top: 9 }]}>
-              <View style={[styles.curveHole, { width: 40, borderTopLeftRadius: 30, backgroundColor: '#111827' }]} />
+            {/* RACCORDO DESTRO - Ancorato all'angolo alto-destro del rettangolo grigio */}
+            <View style={{
+              position: 'absolute',
+              top: 0,
+              right: -38.8, // Si sposta a destra di tutta la sua larghezza
+              width: 39,
+              height: 25,
+              backgroundColor: currentPlayer.color.bg, // Deve essere uguale al rettangolo
+            }}>
+              <View style={{
+                flex: 1,
+                borderTopLeftRadius: 30,
+                backgroundColor: '#111827' // Deve essere uguale allo sfondo esterno
+              }} />
             </View>
 
           </View>
         </View>
 
+
         <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 15, paddingBottom: 280 }}>
+          style={{ flex: 1, overflow: 'visible' }} // <--- overflow visible qui è la chiave
+          contentContainerStyle={{ paddingHorizontal: 15, paddingTop: 30, paddingBottom: 280 }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
             {games.map((game) => {
+              const tokens = voterVotes[game.id] || 0;
+              const hasSkull = voterVotes.skull === game.id;
               const isAnimating = fallingTokens.some(t => t.gameId === game.id);
               return (
-                <View key={game.id} style={[styles.gridItem, { zIndex: isAnimating ? 999 : 1, position: 'relative', overflow: 'visible' }]}>
+                <View key={game.id} style={[styles.gridItem, { zIndex: isAnimating ? 999 : 1, elevation: isAnimating ? 10 : 0, position: 'relative', overflow: 'visible' }]}>
                   <TouchableOpacity
                     activeOpacity={1}
-                    onPress={(e) => handleAddTokenWithAnim(game.id, e)}
+                    onPress={(e) => handleAddTokenWithAnim(game.id, e)} // Passiamo l'evento qui
                     onLongPress={() => handleSkull(game.id)}
                     style={{ flex: 1 }}
                   >
                     <Image source={{ uri: game.uri }} style={styles.gridImage} />
 
-                    
-                    {/* ANIMAZIONE MONETA */}
-                    {fallingTokens.filter(t => t.gameId === game.id).map(t => (
-                      <Animated.View key={t.id} pointerEvents="none" style={[styles.animatedToken, {
-                        left: `${t.finalPos?.left}%`,
-                        top: `${t.finalPos?.top}%`,
-                        transform: [
-                          { translateX: t.animValue.interpolate({ inputRange: [0, 1], outputRange: [t.startX, 0] }) },
-                          { translateY: t.animValue.interpolate({ inputRange: [0, 1], outputRange: [t.startY, 0] }) },
-                          { scale: t.animValue.interpolate({ inputRange: [0, 1], outputRange: [4, 1] }) },
-                          { rotate: t.animValue.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '720deg'] }) },
-                          { rotateZ: t.rotation }
-                        ],
-                        opacity: t.animValue.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0, 1, 1] })
-                      }]}>
-                        <View style={[styles.tokenDotLarge, {
-                          backgroundColor: t.isSkull ? '#FFFFFF' : currentPlayer.color.bg,
-                          borderWidth: 2,
-                          borderColor: '#FFF',
-                          justifyContent: 'center',
-                          alignItems: 'center'
-                        }]}>
-                          {t.isSkull && <MaterialCommunityIcons name="skull" size={24} color={currentPlayer.color.bg} />}
-                        </View>
-                      </Animated.View>
-                    ))}
+                    {/* MONETE CHE CADONO */}
+                    {fallingTokens.filter(t => t.gameId === game.id).map(t => {
+                      if (!t.finalPos) return null;
+
+                      return (
+                        <Animated.View
+                          key={t.id}
+                          pointerEvents="none"
+                          style={{
+                            position: 'absolute',
+                            left: `${t.finalPos.left}%`,
+                            top: `${t.finalPos.top}%`,
+                            zIndex: 9999,
+                            transform: [
+                              { perspective: 1000 },
+                              { translateX: t.animValue.interpolate({ inputRange: [0, 1], outputRange: [t.startX, 0] }) },
+                              { translateY: t.animValue.interpolate({ inputRange: [0, 1], outputRange: [t.startY, 0] }) },
+                              { scale: t.animValue.interpolate({ inputRange: [0, 1], outputRange: [5, 1] }) },
+                              { rotateX: t.animValue.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '1080deg'] }) },
+                              { rotateY: t.animValue.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) },
+                              { rotate: t.rotation }
+                            ],
+                            opacity: t.animValue.interpolate({ inputRange: [0, 0.1, 1], outputRange: [0, 1, 1] })
+                          }}
+                        >
+                          <View style={[styles.tokenDotLarge, { backgroundColor: '#FFF', position: 'absolute', transform: [{ translateY: 1 }] }]} />
+                          <View style={[styles.tokenDotLarge, { backgroundColor: t.id.includes('skull') ? '#FFFFFF' : currentPlayer.color.bg, borderWidth: 2, borderColor: '#FFF', justifyContent: 'center', alignItems: 'center' }]}>
+                            {t.isSkull && (
+                              <MaterialCommunityIcons name="skull" size={28} color={currentPlayer.color.bg} />
+                            )}
+                          </View>
+                        </Animated.View>
+                      );
+                    })}
 
                     <View style={StyleSheet.absoluteFill}>
-                      {currentPositions.filter(t => t.gameId === game.id && !t.isLanding).map((token) => (
-                        <TouchableOpacity
-                          key={token.id}
-                          onPress={() => handleRemoveToken(token.id, game.id)}
-                          style={[styles.tokenDotLarge, {
-                            position: 'absolute',
-                            backgroundColor: token.id.includes('skull') ? '#FFFFFF' : currentPlayer.color.bg,
-                            left: `${token.left}%`,
-                            top: `${token.top}%`,
-                            transform: [{ rotate: token.rotation }],
-                            borderWidth: 2, borderColor: '#FFF', justifyContent: 'center', alignItems: 'center'
-                          }]}
-                        >
-                          {token.id.includes('skull') && <MaterialCommunityIcons name="skull" size={24} color={currentPlayer.color.bg} />}
-                        </TouchableOpacity>
-                      ))}
+
+                      {/* TOKEN GIÀ ATTERRATI */}
+                      {Array.isArray(voterVotes?.positions) && voterVotes.positions
+                        .filter(t => t.gameId === game.id && t.isLanding !== true)
+                        .map((token) => (
+                          <TouchableOpacity
+                            key={token.id}
+                            onPress={() => handleRemoveToken(token.id, game.id)}
+                            style={[
+                              styles.tokenDotLarge,
+                              {
+                                position: 'absolute',
+                                backgroundColor: token.id.includes('skull') ? '#FFFFFF' : currentPlayer.color.bg,
+                                left: `${token.left}%`,
+                                top: `${token.top}%`,
+                                transform: [{ rotate: token.rotation }],
+                                borderWidth: 2,
+                                borderColor: '#FFF',
+                                justifyContent: 'center',
+                                alignItems: 'center'
+                              }
+                            ]}
+                          >
+                            {/* Se il token ha un ID che contiene 'skull' (o se aggiungi una proprietà isSkull al token) */}
+                            {token.id.includes('skull') && (
+                              <MaterialCommunityIcons name="skull" size={28} color={currentPlayer.color.bg} />
+                            )}
+                          </TouchableOpacity>
+                        ))}
                     </View>
                   </TouchableOpacity>
                 </View>
               );
             })}
           </View>
-        </ScrollView>
 
+        </ScrollView>
+        <View style={{paddingBottom: 140, width: '100%', alignItems: 'center', zIndex: 100 }}>
+          {/* TASTO FATTO - Alzato a 140 per uniformità */}
+          <TouchableOpacity
+            style={[styles.buttonLarge, {
+              position: 'absolute',
+              bottom: 140,
+              alignSelf: 'center',
+              backgroundColor: normalTokensPlaced === 6 ? '#2563eb' : '#374151',
+              zIndex: 130
+            }]}
+            disabled={normalTokensPlaced < 6}
+            onPress={confirmVote}
+          >
+            <Text style={styles.buttonText}>{currentPlayerIndex < players.length - 1 ? 'FATTO' : 'TERMINA'}</Text>
+          </TouchableOpacity>
+        </View>
         <LinearGradient
           colors={['transparent', 'rgba(17, 24, 39, 0.8)', '#111827']}
           locations={[0, 0.5, 0.6]} // Regola lo 0.3 per decidere dove inizia a diventare "pesante"
           style={styles.bottomGalleryGradient}
           pointerEvents="none"
         />
-
-        {/* TASTO FATTO - Alzato a 140 per uniformità */}
-        <TouchableOpacity
-          style={[styles.buttonLarge, {
-            position: 'absolute',
-            bottom: 140,
-            alignSelf: 'center',
-            backgroundColor: normalTokensPlaced === 6 ? '#2563eb' : '#374151',
-            zIndex: 130
-          }]}
-          disabled={normalTokensPlaced < 6}
-          onPress={confirmVote}
-        >
-          <Text style={styles.buttonText}>{currentPlayerIndex < players.length - 1 ? 'FATTO' : 'TERMINA'}</Text>
-        </TouchableOpacity>
-
         {/* DASHBOARD TOKEN - Alzata a 85 per stare sotto il tasto */}
         <View style={{ position: 'absolute', bottom: 85, width: '100%', alignItems: 'center', zIndex: 120 }}>
           <View style={styles.tokenBarNoBg}>
@@ -527,7 +600,7 @@ export default function App() {
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+         </View>
     );
   }
 
@@ -579,22 +652,22 @@ export default function App() {
             </View>
           ) : (
             // GALLERIA
-            <View style={{ flex: 1, }}>
-                <View style={[styles.galleryHeader, { height: 110, paddingTop: 80, marginBottom: 20}]}>                  
-                  <TouchableOpacity
-                    onPress={() => setViewMode('camera')}
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
-                  >
-                    <AntDesign name="arrow-left" size={20} color="white" />
-                    <Entypo name="camera" size={26} color="white" />
-                  </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <View style={[styles.galleryHeader, { height: 110, paddingTop: 60, marginBottom: 20 }]}>
+                <TouchableOpacity
+                  onPress={() => setViewMode('camera')}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                >
+                  <AntDesign name="arrow-left" size={20} color="white" />
+                  <Entypo name="camera" size={26} color="white" />
+                </TouchableOpacity>
 
-                  <Text style={{ color: '#fff', fontWeight: 'bold' }}>
-                    ELEMENTI: {games.length}
-                  </Text>
-                </View>
+                <Text style={{ color: '#fff', fontWeight: 'bold' }}>
+                  ELEMENTI: {games.length}
+                </Text>
+              </View>
 
-                <DraggableFlatList contentContainerStyle={{  paddingBottom: 280 }}
+              <DraggableFlatList contentContainerStyle={{ paddingBottom: 280 }}
                 data={games}
                 onDragEnd={({ data }) => {
                   setGames(data);
@@ -618,12 +691,7 @@ export default function App() {
                   </ScaleDecorator>
                 )}
               />
-                <LinearGradient
-                  colors={['transparent', 'rgba(17, 24, 39, 0.8)', '#111827']}
-                  locations={[0, 0.5, 0.6]} // Regola lo 0.3 per decidere dove inizia a diventare "pesante"
-                  style={styles.bottomGalleryGradient}
-                  pointerEvents="none"
-                />
+              <LinearGradient colors={['transparent', '#111827']} style={styles.bottomGalleryGradient} pointerEvents="none" />
             </View>
           )}
 
@@ -640,7 +708,7 @@ export default function App() {
         </View>
       </GestureHandlerRootView>
     );
-  } 
+  }
 
   // SCREEN SHOW PLAYERS
   if (screen === 'showPlayers') {
@@ -781,7 +849,7 @@ export default function App() {
 
 // STILI
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#111827', paddingTop: 0 },
+  container: { flex: 1, backgroundColor: '#111827', paddingTop: 20 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: { fontSize: 22, color: '#fff', textAlign: 'center', fontWeight: 'bold', marginBottom: 20 },
   title: { fontSize: 24, color: '#fff', fontWeight: 'bold', marginBottom: 5 },
@@ -813,6 +881,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 35,
+    marginBottom: 15, // Un po' di margine sotto l'header
+    marginTop: 10     // Un po' di margine sopra
   },
   bottomGalleryGradient: {
     position: 'absolute',
@@ -846,6 +916,12 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
   },
   fixedBottomButton: { position: 'absolute', bottom: 30, width: '100%', alignItems: 'center' },
+  tokenBarNoBg: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
   dashboardContainer: {
     position: 'absolute',
     bottom: 40,
@@ -888,43 +964,5 @@ const styles = StyleSheet.create({
     marginRight: 5,
     backgroundColor: 'rgba(239, 68, 68, 0.2)',
     borderRadius: 10,
-  },
-  animatedToken: {
-    position: 'absolute',
-    zIndex: 9999,
-  },
-  tokenBarNoBg: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  dashboardContainer: {
-    position: 'absolute',
-    bottom: 120, // Allineato al "bottom 140" della gallery ma leggermente più giù per far spazio ai token
-    width: '100%',
-    alignItems: 'center',
-    zIndex: 100,
-  },
-  inverseCurve: {
-    position: 'absolute',
-    top: 0,
-    height: 25,
-  },
-  curveHole: {
-    height: 25,
-  },
-  tabLabel: {
-    position: 'absolute',
-    bottom: -35,
-    paddingHorizontal: 30,
-    paddingVertical: 10,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 60,
-    width: 'auto'
   },
 });
