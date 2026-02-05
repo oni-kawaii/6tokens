@@ -2,6 +2,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AntDesign from '@expo/vector-icons/AntDesign';
 import Entypo from '@expo/vector-icons/Entypo';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { Audio } from 'expo-av';
 import { CameraView } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,41 +17,86 @@ import {
   Dimensions, // Aggiunto
   Easing,
   Image,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
-} from 'react-native'; // IMPORT PER IL DRAG STILE HOME
-import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
+  TouchableWithoutFeedback,
+  View
+} from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 
 SplashScreen.preventAutoHideAsync().catch(() => { });
+// COPIA QUESTO IN CIMA AL FILE (FUORI DA APP)
 
 const { width, height } = Dimensions.get('window');
 const ITEM_HEIGHT = 70;
 const COLUMN_WIDTH = (width / 2) - 20;
+const AnimatedSkull = ({ bgColor }) => {
+  // Uso direttamente useRef e useEffect senza "React." davanti
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const startLoop = () => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulse, { toValue: 1, duration: 3500, useNativeDriver: true }),
+          Animated.timing(pulse, { toValue: 0, duration: 1000, useNativeDriver: true }),
+        ])
+      ).start();
+    };
+
+    startLoop();
+  }, []);
+
+  return (
+    <View style={{ width: 30, height: 30, borderRadius: 17.5, backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
+      <Animated.View style={{
+        position: 'absolute',
+        opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 0] })
+      }}>
+        <MaterialCommunityIcons name="skull" size={28} color={bgColor} />
+      </Animated.View>
+
+      <Animated.View style={{
+        position: 'absolute',
+        opacity: pulse
+      }}>
+        <Text style={{ color: bgColor, fontWeight: '900', fontSize: 18, paddingRight: 2, paddingBottom: 2 }}>-2</Text>
+      </Animated.View>
+    </View>
+  );
+};
 
 export default function App() {
   // --- 1. STATI (HOOKS) ---
   const [screen, setScreen] = useState('selectNumber');
   const [selectedNumber, setSelectedNumber] = useState(2);
   const [players, setPlayers] = useState([]);
+  const scrollRef = useRef(null);
+
   const [games, setGames] = useState([]);
   const [viewMode, setViewMode] = useState('camera');
+  const [isShuttering, setIsShuttering] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const cameraRef = useRef(null);
 
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const [gameVotes, setGameVotes] = useState({});
-
   const inputRefs = useRef([]);
-  const cameraRef = useRef(null);
-  const scrollRef = useRef(null);
-  const [isShuttering, setIsShuttering] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+
+
+  const soundResetRef = useRef(null);
+  const tokenSoundsRef = useRef([]); // Un array per contenere i suoni caricati
+  const [showExitModal, setShowExitModal] = useState(false);
+  const skullPulseAnim = useRef(new Animated.Value(0)).current;
+
 
   // --- 2. EFFETTI ---
+  // Tasto indietro comportamento
   useEffect(() => {
     SplashScreen.hideAsync().catch(() => { });
     const backAction = () => {
@@ -59,11 +107,17 @@ export default function App() {
         return true;
       }
       if (screen === 'voting' || screen === 'passPhone') {
-        // RESET TOTALE: svuota tutti i voti e torna al primo giocatore
-        setGameVotes({});
-        setCurrentPlayerIndex(0);
-        setScreen('addGames');
-        setViewMode('gallery');
+        const hasStartedVoting = currentPlayerIndex > 0 || (gameVotes[currentPlayerIndex]?.positions?.length > 0);
+
+        if (!hasStartedVoting) {
+          setGameVotes({});
+          setCurrentPlayerIndex(0);
+          setScreen('addGames');
+          setViewMode('gallery');
+        } else {
+          // Invece dell'Alert nativo, apriamo il nostro modale
+          setShowExitModal(true);
+        }
         return true;
       }
       return false;
@@ -82,6 +136,74 @@ export default function App() {
       }
     }
   }, [screen]);
+
+  // carica suoni
+  useEffect(() => {
+    async function loadAllSounds() {
+      try {
+        // 1. Carica il reset (come prima)
+        const { sound: resSound } = await Audio.Sound.createAsync(require('./assets/sounds/reset.mp3'));
+        soundResetRef.current = resSound;
+
+        // 2. Carica l'array di monete
+        const soundFiles = [
+          require('./assets/sounds/token (1).mp3'),
+          require('./assets/sounds/token (2).mp3'),
+          require('./assets/sounds/token (3).mp3'),
+          require('./assets/sounds/token (4).mp3'),
+          require('./assets/sounds/token (5).mp3'),
+          require('./assets/sounds/token (6).mp3'),
+          require('./assets/sounds/token (7).mp3'),
+          require('./assets/sounds/token (8).mp3'),
+          require('./assets/sounds/token (9).mp3'),
+          require('./assets/sounds/token (10).mp3'),
+        ];
+
+        const loadedSounds = await Promise.all(
+          soundFiles.map(async (file) => {
+            const { sound } = await Audio.Sound.createAsync(file);
+            return sound;
+          })
+        );
+        tokenSoundsRef.current = loadedSounds;
+
+      } catch (error) {
+        console.log("Errore caricamento pool suoni:", error);
+      }
+    }
+    loadAllSounds();
+
+    return () => {
+      // Pulisci tutti i suoni nell'array
+      tokenSoundsRef.current.forEach(s => s.unloadAsync());
+      if (soundResetRef.current) soundResetRef.current.unloadAsync();
+    };
+  }, []);
+
+  //animazione teschio -2
+  useEffect(() => {
+    const startAnimation = () => {
+      skullPulseAnim.setValue(0); // Reset forzato all'inizio
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(skullPulseAnim, {
+            toValue: 1,
+            duration: 3500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(skullPulseAnim, {
+            toValue: 0,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    };
+
+    startAnimation();
+
+    // Non mettiamo dipendenze così resta attivo finché l'app è aperta
+  }, [skullPulseAnim]);
 
   // --- 3. LOGICA ---
   const colors = [
@@ -142,18 +264,25 @@ export default function App() {
   const animateToken = (gameId, finalPos, rotation, tokenId, isSkull = false) => {
     const animValue = new Animated.Value(0);
 
+    // Lancio solo dai lati: 0 = Sinistra, 1 = Destra
+    // Scegliamo solo tra Sinistra (0) e Destra (1)
     const side = Math.floor(Math.random() * 3); // 0: Sinistra, 1: Alto, 2: Destra
     let startX, startY;
 
-    if (side === 0) { // Da sinistra
+    if (side === 0) {
+      // SINISTRA
       startX = -width;
-      startY = (Math.random() - 0.5) * height;
-    } else if (side === 1) { // Dall'alto
+      startY = 150 + (Math.random() * (height - 350));
+    } else if (side === 1) {
+      // ALTO (Ecco il blocco che mancava!)
+      // Partiamo dal centro orizzontale casuale
       startX = (Math.random() - 0.5) * width;
-      startY = -height;
-    } else { // Da destra
+      // Invece di 0 o negativo, partiamo da 120 per "saltare" la testata
+      startY = -100;
+    } else {
+      // DESTRA
       startX = width;
-      startY = (Math.random() - 0.5) * height;
+      startY = 150 + (Math.random() * (height - 350));
     }
 
     setFallingTokens(prev => [...prev, {
@@ -188,6 +317,7 @@ export default function App() {
 
   const handleAddTokenWithAnim = (gameId, event) => {
     // Otteniamo le coordinate del tocco rispetto alla foto (0-100%)
+
     const { locationX, locationY } = event.nativeEvent;
     const touchX = (locationX / COLUMN_WIDTH) * 100;
     const touchY = (locationY / 180) * 100; // 180 è l'altezza definita nel tuo stile gridItem
@@ -205,6 +335,9 @@ export default function App() {
 
   // --- LOGICA VOTO ---
   const handleAddToken = (gameId, touchX, touchY) => {
+    setTimeout(() => {
+      playRandomTokenSound();
+    }, 500);
     const voterVotes = gameVotes[currentPlayerIndex] || { skull: null, positions: [] };
     const currentPositions = voterVotes.positions || [];
     const newVotes = { ...voterVotes };
@@ -256,6 +389,7 @@ export default function App() {
   };
 
   const handleSkull = (gameId) => {
+
     const voterVotes = gameVotes[currentPlayerIndex] || { skull: null, positions: [] };
 
     // Se il teschio è già qui, esce senza vibrare (come da tua richiesta)
@@ -280,7 +414,9 @@ export default function App() {
 
       if (!isTooClose) break;
     } while (attempts < 15);
-
+    setTimeout(() => {
+      playRandomTokenSound();
+    }, 500);
     const tokenId = `skull_${Date.now()}`;
     const rotation = `${Math.random() * 60 - 30}deg`;
 
@@ -306,19 +442,6 @@ export default function App() {
         positions: newPositions
       }
     }));
-  };
-
-  const handleResetNormalTokens = () => {
-    const voterVotes = gameVotes[currentPlayerIndex];
-    if (voterVotes && voterVotes.positions) {
-      const newVotes = { ...voterVotes };
-      // Teniamo solo il teschio se presente
-      newVotes.positions = voterVotes.positions.filter(t => t.id.includes('skull'));
-      // Azzera i contatori numerici dei giochi
-      games.forEach(game => { newVotes[game.id] = 0; });
-      setGameVotes({ ...gameVotes, [currentPlayerIndex]: newVotes });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
   };
 
   const handleRemoveToken = (tokenId, gameId) => {
@@ -352,7 +475,79 @@ export default function App() {
     }
   };
 
+  const playRandomTokenSound = async () => {
+    const sounds = tokenSoundsRef.current;
+    if (sounds.length > 0) {
+      try {
+        // Sceglie un numero a caso tra 0 e la lunghezza dell'array
+        const randomIndex = Math.floor(Math.random() * sounds.length);
+        const selectedSound = sounds[randomIndex];
+
+        await selectedSound.setPositionAsync(0);
+        await selectedSound.playAsync();
+      } catch (error) {
+        console.log("Errore audio random:", error);
+      }
+    }
+  };
+
+  const playResetSound = async () => {
+    // Controlliamo se il suono è stato caricato correttamente nel riferimento
+    if (soundResetRef.current) {
+      try {
+        // Riporta il suono all'inizio (fondamentale per i click ripetuti)
+        await soundResetRef.current.setPositionAsync(0);
+        // Suona!
+        await soundResetRef.current.playAsync();
+      } catch (error) {
+        console.log("Errore riproduzione reset:", error);
+      }
+    } else {
+      console.log("Il suono reset non è ancora pronto o caricato");
+    }
+  };
+
   // --- 4. RENDERING ---
+  // --- FUNZIONE PER IL MODALE DI USCITA ---
+  const renderExitModal = () => (
+    <Modal
+      statusBarTranslucent={true}
+      visible={showExitModal}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={() => setShowExitModal(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          <Text style={styles.modalTitle}>Abbandonare?</Text>
+          <Text style={styles.modalMessage}>
+            Se esci ora, tutti i voti di questa sessione verranno persi definitivamente.
+          </Text>
+          <View style={styles.modalButtons}>
+            <TouchableOpacity
+              style={[styles.modalBtn, { backgroundColor: '#f3f4f6' }]}
+              onPress={() => setShowExitModal(false)}
+            >
+              <Text style={{ fontWeight: 'bold', color: '#4b5563' }}>ANNULLA</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.modalBtn, { backgroundColor: '#ef4444' }]}
+              onPress={() => {
+                setShowExitModal(false);
+                setGameVotes({});
+                setCurrentPlayerIndex(0);
+                setScreen('addGames');
+                setViewMode('gallery');
+              }}
+            >
+              <Text style={{ fontWeight: 'bold', color: '#fff' }}>ABBANDONA</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 
   // SCHERMATA PASSAGGIO (FULL COLOR)
   if (screen === 'passPhone') {
@@ -367,11 +562,11 @@ export default function App() {
           setScreen('voting');
         }}
       >
-        <Text style={{ color: targetPlayer.color.text, fontSize: 18, opacity: 0.8, marginBottom: 10 }}>TOCCA A:</Text>
+        {renderExitModal()}
         <Text style={{ color: targetPlayer.color.text, fontSize: 42, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 }}>
           {targetPlayer.customName || targetPlayer.defaultName}
         </Text>
-        <Text style={{ color: targetPlayer.color.text, fontSize: 16, marginTop: 40, opacity: 0.7 }}>TOCCA LO SCHERMO PER INIZIARE A VOTARE</Text>
+        <Text style={{ color: targetPlayer.color.text, fontSize: 16, marginTop: 40, opacity: 1, textAlign: 'center' }}>TOCCA LO SCHERMO {"\n"}PER INIZIARE A VOTARE</Text>
       </TouchableOpacity>
     );
   }
@@ -379,94 +574,59 @@ export default function App() {
   // SCHERMATA VOTING
   if (screen === 'voting') {
     const currentPlayer = players[currentPlayerIndex];
-    const voterVotes = gameVotes[currentPlayerIndex] || { skull: null };
+    const voterVotes = gameVotes[currentPlayerIndex] || { skull: null, positions: [] };
 
-    const currentPositions = voterVotes.positions || [];
-    const normalTokensPlaced = currentPositions.filter(t => !t.id.includes('skull')).length;
-    const skullToken = currentPositions.find(t => t.id.includes('skull'));
+    // Conta fisicamente quante monete ci sono nell'array
+    const coinsPlaced = Array.isArray(voterVotes.positions)
+      ? voterVotes.positions.filter(t => !t.id.includes('skull')).length
+      : 0;
 
-    const totalSpent = Object.entries(voterVotes)
-      .filter(([key]) => key !== 'skull')
-      .reduce((sum, [_, val]) => (typeof val === 'number' ? sum + val : sum), 0);
+    // Valore 1 per ogni moneta
+    const totalSpent = coinsPlaced;
 
     return (
 
-      <View style={{ flex: 1, backgroundColor: '#111827' }}>
-        {/* HEADER RIPRISTINATO SECONDO TUE INDICAZIONI */}
-        <View style={{
-          backgroundColor: currentPlayer.color.bg,
-          height: 50,
-          marginBottom: 80,
-          alignItems: 'center',
-          position: 'relative',
-          zIndex: 1
-        }}>
-          {/* RETTANGOLO (TabLabel) - Ora "appeso" alla linea bianca */}
-          <View style={{
-            position: 'absolute',
-            top: 50, // Inizia esattamente dove finisce l'header bianco
-            backgroundColor: currentPlayer.color.bg,
-            paddingHorizontal: 30,
-            paddingVertical: 10,
-            borderBottomLeftRadius: 20,
-            borderBottomRightRadius: 20,
-            flexDirection: 'row',
-            alignItems: 'flex-start', // Allineamento verticale a TOP del testo
-            justifyContent: 'center',
-            minWidth: 60,
-            zIndex: 1
-          }}>
-
-            {/* RACCORDO SINISTRO - Ancorato all'angolo alto-sinistro del rettangolo grigio */}
-            <View style={{
-              position: 'absolute',
-              top: 0,
-              left: -39, // Si sposta a sinistra di tutta la sua larghezza
-              width: 39,
-              height: 25,
-              backgroundColor: currentPlayer.color.bg, // Deve essere uguale al rettangolo
-            }}>
-              <View style={{
-                flex: 1,
-                borderTopRightRadius: 30,
-                backgroundColor: '#111827' // Deve essere uguale allo sfondo esterno
-              }} />
-            </View>
-
-            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>
+      <View style={[styles.container, { paddingTop: 0 }]}>
+        {renderExitModal()}
+        {/* HEADER CUSTOMIZZATO CON NOTCH */}
+        <View style={{ width: '100%', height: 100, backgroundColor: currentPlayer.color.bg, position: 'relative', zIndex: 10 }} />
+        <View style={styles.votingHeaderNotch}>
+          <View style={[styles.playerTab, { backgroundColor: currentPlayer.color.bg }]}>
+            <Text style={styles.playerNameText}>
               {currentPlayer.customName || currentPlayer.defaultName}
             </Text>
 
-            {/* RACCORDO DESTRO - Ancorato all'angolo alto-destro del rettangolo grigio */}
-            <View style={{
-              position: 'absolute',
-              top: 0,
-              right: -38.8, // Si sposta a destra di tutta la sua larghezza
-              width: 39,
-              height: 25,
-              backgroundColor: currentPlayer.color.bg, // Deve essere uguale al rettangolo
-            }}>
-              <View style={{
-                flex: 1,
-                borderTopLeftRadius: 30,
-                backgroundColor: '#111827' // Deve essere uguale allo sfondo esterno
-              }} />
-            </View>
-
           </View>
-        </View>
 
+        </View>
+        {/* SFUMATURA COPRENTE VERSO IL BASSO */}
+        <LinearGradient
+          // Parte dal colore pieno del giocatore e va verso il trasparente (0% opacità)
+          colors={['#111827', 'rgba(0,0,0,0)']}
+          style={{
+            position: 'absolute',
+            top: 100, // Parte esattamente dove finisce il rettangolo alto 100
+            left: 0,
+            right: 0,
+            height: 60, // Aumentato a 60 per un effetto più morbido e coprente
+            zIndex: 4, // Valore alto per coprire foto e monete (che hanno zIndex < 20)
+          }}
+          pointerEvents="none" // Indispensabile per cliccare le foto sotto
+        />
 
         <ScrollView
-          style={{ flex: 1, overflow: 'visible' }} // <--- overflow visible qui è la chiave
-          contentContainerStyle={{ paddingHorizontal: 15, paddingTop: 30, paddingBottom: 280 }}>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+          style={{ flex: 1, overflow: 'visible', backgroundColor: '#111827', }} // <--- overflow visible qui è la chiave
+          contentContainerStyle={{ paddingHorizontal: 15, paddingTop: 30, paddingBottom: 280 }}
+          bounces={false}
+          overScrollMode="never">
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}
+          >
             {games.map((game) => {
               const tokens = voterVotes[game.id] || 0;
               const hasSkull = voterVotes.skull === game.id;
               const isAnimating = fallingTokens.some(t => t.gameId === game.id);
               return (
-                <View key={game.id} style={[styles.gridItem, { zIndex: isAnimating ? 999 : 1, elevation: isAnimating ? 10 : 0, position: 'relative', overflow: 'visible' }]}>
+                <View key={game.id} style={[styles.gridItem, { zIndex: isAnimating ? 5 : 1, elevation: isAnimating ? 5 : 0, position: 'relative', overflow: 'visible' }]}>
                   <TouchableOpacity
                     activeOpacity={1}
                     onPress={(e) => handleAddTokenWithAnim(game.id, e)} // Passiamo l'evento qui
@@ -546,61 +706,89 @@ export default function App() {
               );
             })}
           </View>
-
         </ScrollView>
-        <View style={{paddingBottom: 140, width: '100%', alignItems: 'center', zIndex: 100 }}>
-          {/* TASTO FATTO - Alzato a 140 per uniformità */}
-          <TouchableOpacity
-            style={[styles.buttonLarge, {
-              position: 'absolute',
-              bottom: 140,
-              alignSelf: 'center',
-              backgroundColor: normalTokensPlaced === 6 ? '#2563eb' : '#374151',
-              zIndex: 130
-            }]}
-            disabled={normalTokensPlaced < 6}
-            onPress={confirmVote}
-          >
-            <Text style={styles.buttonText}>{currentPlayerIndex < players.length - 1 ? 'FATTO' : 'TERMINA'}</Text>
-          </TouchableOpacity>
-        </View>
-        <LinearGradient
-          colors={['transparent', 'rgba(17, 24, 39, 0.8)', '#111827']}
-          locations={[0, 0.5, 0.6]} // Regola lo 0.3 per decidere dove inizia a diventare "pesante"
-          style={styles.bottomGalleryGradient}
-          pointerEvents="none"
-        />
-        {/* DASHBOARD TOKEN - Alzata a 85 per stare sotto il tasto */}
-        <View style={{ position: 'absolute', bottom: 85, width: '100%', alignItems: 'center', zIndex: 120 }}>
-          <View style={styles.tokenBarNoBg}>
-            <TouchableOpacity onPress={handleResetNormalTokens} style={styles.resetAllBtn}>
-              <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold' }}>X</Text>
-            </TouchableOpacity>
 
-            {[...Array(6)].map((_, i) => (
-              <View key={`slot-${i}`} style={styles.tokenSlot}>
-                {i >= normalTokensPlaced && (
-                  <View style={[styles.tokenDotSmall, { backgroundColor: currentPlayer.color.bg }]} />
+        {/* CONTENITORE COMANDI IN BASSO (Tasti + Dashboard) */}
+        <View style={{ position: 'absolute', bottom: 140, width: '100%', alignItems: 'center', zIndex: 100 }}>
+
+          {/* DASHBOARD TOKEN (7 Slot) */}
+          <View style={[styles.dashboardContainer, { width: '100%' }]}>
+            <View style={[styles.tokenSlotsRow, { justifyContent: 'center' }]}>
+              {/* 6 SLOT MONETE */}
+              {[...Array(6)].map((_, i) => {
+                const isFilled = i < (6 - totalSpent);
+                return (
+                  <View key={i} style={styles.slotCircle}>
+                    {isFilled ? (
+                      <View style={[styles.tokenDotDashboard, { backgroundColor: currentPlayer.color.bg }]} />
+                    ) : (
+                      <View style={styles.slotEmpty} />
+                    )}
+                  </View>
+                );
+              })}
+
+              {/* SEPARATORE VERTICALE */}
+              <View style={{ width: 1, height: 25, backgroundColor: 'rgba(255,255,255,0.2)', marginHorizontal: 5 }} />
+
+              {/* SLOT TESCHIO ANIMATO */}
+              <View style={styles.slotCircle}>
+                {!voterVotes.skull ? (
+                  <AnimatedSkull bgColor={currentPlayer.color.bg} />
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => {
+                      const skullToken = voterVotes.positions.find(t => t.id.includes('skull'));
+                      if (skullToken) handleRemoveToken(skullToken.id, skullToken.gameId);
+                    }}
+                    style={[styles.slotEmpty, { justifyContent: 'center', alignItems: 'center', paddingBottom: 2 }]}
+                  >
+                    <Ionicons name="arrow-undo" size={18} color="#fff" />
+                  </TouchableOpacity>
                 )}
               </View>
-            ))}
+            </View>
+          </View>
 
+          {/* RIGA TASTI (Reset + Conferma) */}
+          <View style={{ flexDirection: 'row', width: '80%', justifyContent: 'space-between', alignItems: 'center', marginTop: 15 }}>
+            {/* TASTO RESET (X) */}
             <TouchableOpacity
-              disabled={!skullToken}
-              onPress={() => skullToken && handleRemoveToken(skullToken.id, skullToken.gameId)}
-              style={styles.tokenSlot}
+              style={[styles.buttonSquare, { backgroundColor: '#374151' }]}
+              onPress={() => {
+                playResetSound();
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                setTimeout(() => {
+                  setGameVotes(prev => ({ ...prev, [currentPlayerIndex]: { skull: null, positions: [] } }));
+                }, 200);
+              }}
             >
-              {skullToken ? (
-                <Text style={{ color: '#ef4444', fontSize: 18, fontWeight: 'bold' }}>X</Text>
-              ) : (
-                <View style={[styles.tokenDotSmall, { backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center' }]}>
-                  <MaterialCommunityIcons name="skull" size={16} color={currentPlayer.color.bg} />
-                </View>
-              )}
+              <Text style={styles.buttonText}><MaterialIcons name="refresh" size={24} /></Text>
+            </TouchableOpacity>
+
+            {/* TASTO FATTO (Più piccolo e a destra) */}
+            <TouchableOpacity
+              style={[
+                styles.buttonFattoSmall,
+                { backgroundColor: totalSpent >= 6 ? '#2563eb' : '#374151' } // Cambia colore qui
+              ]}
+              disabled={totalSpent < 6} // Resta disabilitato finché non sono 6
+              onPress={confirmVote}
+            >
+              <Text style={styles.buttonText}>
+                {currentPlayerIndex < players.length - 1 ? 'FATTO' : 'TERMINA'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
-         </View>
+
+        <LinearGradient
+          colors={['transparent', 'rgba(17, 24, 39, 0.8)', '#111827']}
+          locations={[0, 0.7, 0.8]} // Regola lo 0.3 per decidere dove inizia a diventare "pesante"
+          style={styles.bottomGalleryGradient}
+          pointerEvents="none"
+        />
+      </View>
     );
   }
 
@@ -608,7 +796,7 @@ export default function App() {
   if (screen === 'addGames') {
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <View style={styles.container}>
+        <View style={[styles.container, { paddingTop: 0 }]}>
           {viewMode === 'camera' ? (
             <View style={{ flex: 1, backgroundColor: '#111827', alignItems: 'center' }}>
               {/* ANTEPRIMA RISTRETTA */}
@@ -652,8 +840,8 @@ export default function App() {
             </View>
           ) : (
             // GALLERIA
-            <View style={{ flex: 1 }}>
-              <View style={[styles.galleryHeader, { height: 110, paddingTop: 60, marginBottom: 20 }]}>
+            <View style={{ flex: 1, }}>
+              <View style={[styles.galleryHeader, { height: 130, paddingTop: 60 }]}>
                 <TouchableOpacity
                   onPress={() => setViewMode('camera')}
                   style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
@@ -666,32 +854,57 @@ export default function App() {
                   ELEMENTI: {games.length}
                 </Text>
               </View>
-
-              <DraggableFlatList contentContainerStyle={{ paddingBottom: 280 }}
-                data={games}
-                onDragEnd={({ data }) => {
-                  setGames(data);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              <LinearGradient
+                // Parte dal colore pieno del giocatore e va verso il trasparente (0% opacità)
+                colors={['#111827', 'rgba(0,0,0,0)']}
+                style={{
+                  position: 'absolute',
+                  top: 130, // Parte esattamente dove finisce il rettangolo alto 100
+                  left: 0,
+                  right: 0,
+                  height: 60, // Aumentato a 60 per un effetto più morbido e coprente
+                  zIndex: 4, // Valore alto per coprire foto e monete (che hanno zIndex < 20)
                 }}
-                keyExtractor={(item) => item.id}
-                numColumns={2}
-                columnWrapperStyle={{ justifyContent: 'space-between', paddingHorizontal: 15 }}
-                renderItem={({ item, drag, isActive }) => (
-                  <ScaleDecorator>
-                    <TouchableOpacity
-                      onLongPress={drag}
-                      activeOpacity={1}
-                      style={[styles.gridItem, { opacity: isActive ? 0.3 : 1 }]}
-                    >
-                      <Image source={{ uri: item.uri }} style={styles.gridImage} />
-                      <TouchableOpacity onPress={() => deletePhoto(item.id)} style={styles.deleteBadge}>
-                        <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>✕</Text>
-                      </TouchableOpacity>
-                    </TouchableOpacity>
-                  </ScaleDecorator>
-                )}
+                pointerEvents="none" // Indispensabile per cliccare le foto sotto
               />
-              <LinearGradient colors={['transparent', '#111827']} style={styles.bottomGalleryGradient} pointerEvents="none" />
+
+              <ScrollView
+                style={{ flex: 1, backgroundColor: '#111827' }}
+                contentContainerStyle={{
+                  paddingTop: 40,
+                  paddingBottom: 280,
+                  paddingHorizontal: 15
+                }}
+                bounces={false}
+                overScrollMode="never">
+
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+                  {games.map((item) => (
+                    <View key={item.id} style={styles.gridItem}>
+                      {/* Usiamo TouchableWithoutFeedback per eliminare l'effetto trasparenza */}
+                      <TouchableWithoutFeedback>
+                        <View style={{ flex: 1 }}>
+                          <Image source={{ uri: item.uri }} style={styles.gridImage} />
+
+                          <TouchableOpacity
+                            onPress={() => deletePhoto(item.id)}
+                            style={styles.deleteBadge}
+                          >
+                            <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </TouchableWithoutFeedback>
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+
+              <LinearGradient
+                colors={['transparent', 'rgba(17, 24, 39, 0.8)', '#111827']}
+                locations={[0, 0.7, 0.8]} // Regola lo 0.3 per decidere dove inizia a diventare "pesante"
+                style={styles.bottomGalleryGradient}
+                pointerEvents="none"
+              />
             </View>
           )}
 
@@ -709,7 +922,6 @@ export default function App() {
       </GestureHandlerRootView>
     );
   }
-
   // SCREEN SHOW PLAYERS
   if (screen === 'showPlayers') {
     return (
@@ -873,25 +1085,17 @@ const styles = StyleSheet.create({
   galleryCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' },
   badge: { position: 'absolute', top: -5, right: -5, backgroundColor: '#ef4444', borderRadius: 11, width: 22, height: 22, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4, zIndex: 10 },
   badgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold', textAlign: 'center' },
-  gridItem: { width: COLUMN_WIDTH, height: 180, marginBottom: 20, borderRadius: 15, backgroundColor: '#1f2937' },
+  gridItem: { width: COLUMN_WIDTH, height: 180, marginBottom: 10, borderRadius: 15, backgroundColor: '#1f2937' },
   gridImage: { width: '100%', height: '100%', borderRadius: 15 },
   deleteBadge: { position: 'absolute', top: 10, right: 10, backgroundColor: '#ef4444', width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center', zIndex: 20 },
   galleryHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    backgroundColor: '#111827',
     alignItems: 'center',
-    paddingHorizontal: 35,
-    marginBottom: 15, // Un po' di margine sotto l'header
-    marginTop: 10     // Un po' di margine sopra
+    paddingHorizontal: 25,
   },
-  bottomGalleryGradient: {
-    position: 'absolute',
-    bottom: -5,
-    left: 0,
-    right: 0,
-    height: 280, // Aumentato per iniziare più in alto
-    zIndex: 10
-  },  
+  bottomGalleryGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 250, zIndex: 10 },
   moveControlsOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 40, backgroundColor: 'rgba(0,0,0,0.4)', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 15, alignItems: 'center', borderBottomLeftRadius: 15, borderBottomRightRadius: 15 },
   arrow: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
   // STILI VOTING
@@ -916,53 +1120,133 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
   },
   fixedBottomButton: { position: 'absolute', bottom: 30, width: '100%', alignItems: 'center' },
-  tokenBarNoBg: {
-    flexDirection: 'row',
+  votingHeaderNotch: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    position: 'relative',
+    zIndex: 10,
+  },
+  playerTab: {
+    height: 40,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    position: 'relative',
+    minWidth: 30,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+  },
+  playerNameText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    paddingHorizontal: 20,
   },
   dashboardContainer: {
-    position: 'absolute',
-    bottom: 40,
-    width: '100%',
-    alignItems: 'center',
-    zIndex: 100,
+    backgroundColor: 'rgba(31, 41, 55, 0.95)', // Grigio scuro con opacità
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 30,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  tokenBar: {
+  tokenSlotsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    padding: 12,
-    borderRadius: 25,
     gap: 8,
   },
-  tokenSlot: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    borderStyle: 'dashed',
+  slotCircle: {
+    width: 36,
+    height: 36,
     justifyContent: 'center',
     alignItems: 'center',
+    // Rimuovi eventuali bordi o background da qui se presenti
   },
-  tokenDotSmall: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  slotEmpty: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.3)',
+    borderStyle: 'dashed',
+    backgroundColor: 'transparent',
+  },
+  tokenDotDashboard: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     borderWidth: 1,
     borderColor: '#FFF',
+    borderStyle: 'solid',
+    justifyContent: 'center', // <--- Centra orizzontalmente
+    alignItems: 'center',     // <--- Centra verticalmente
   },
-  resetAllBtn: {
-    width: 38,
-    height: 38,
+  buttonSquare: {
+    width: 60, // Altezza coerente con buttonLarge ma quadrato
+    height: 60,
+    borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 5,
-    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-    borderRadius: 10,
+  },
+  buttonFattoSmall: {
+    flex: 1, // Prende lo spazio rimanente a destra
+    height: 60,
+    borderRadius: 15,
+    marginLeft: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  //modale
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)', // Sfondo semitrasparente che oscura l'app
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    width: '80%',
+    backgroundColor: '#fff',
+    borderRadius: 25, // Bordi belli arrotondati come volevi
+    padding: 25,
+    alignItems: 'center',
+    elevation: 10, // Ombra su Android
+    shadowColor: '#000', // Ombra su iOS
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#1f2937',
+  },
+  modalMessage: {
+    fontSize: 16,
+    textAlign: 'center',
+    color: '#4b5563',
+    marginBottom: 25,
+    lineHeight: 22,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 15, // Pulsanti arrotondati
+    alignItems: 'center',
+    marginHorizontal: 5,
+  },
+  modalBtnCancel: {
+    backgroundColor: '#f3f4f6',
+  },
+  modalBtnExit: {
+    backgroundColor: '#ef4444', // Rosso per l'uscita
+  },
+  modalBtnText: {
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 });
