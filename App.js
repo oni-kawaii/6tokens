@@ -4,7 +4,7 @@ import AntDesign from '@expo/vector-icons/AntDesign';
 import Entypo from '@expo/vector-icons/Entypo';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { Audio } from 'expo-av';
+import { useAudioPlayer } from 'expo-audio';
 import { CameraView } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -27,7 +27,6 @@ import {
   View
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-
 
 SplashScreen.preventAutoHideAsync().catch(() => { });
 // COPIA QUESTO IN CIMA AL FILE (FUORI DA APP)
@@ -69,10 +68,31 @@ const AnimatedSkull = ({ bgColor }) => {
       </Animated.View>
     </View>
   );
-};
+}; 
 
 export default function App() {
   // --- 1. STATI (HOOKS) ---
+  // --- NUOVA GESTIONE AUDIO (Expo Audio) ---
+  const drumrollPlayer = useAudioPlayer(require('./assets/sounds/drumroll.mp3'));
+  const resetPlayer = useAudioPlayer(require('./assets/sounds/reset.mp3'));
+
+  // Per i token, carichiamo i file in un array di sorgenti
+  const tokenSources = [
+    require('./assets/sounds/token (1).mp3'),
+    require('./assets/sounds/token (2).mp3'),
+    require('./assets/sounds/token (3).mp3'),
+    require('./assets/sounds/token (4).mp3'),
+    require('./assets/sounds/token (5).mp3'),
+    require('./assets/sounds/token (6).mp3'),
+    require('./assets/sounds/token (7).mp3'),
+    require('./assets/sounds/token (8).mp3'),
+    require('./assets/sounds/token (9).mp3'),
+    require('./assets/sounds/token (10).mp3'),
+  ];
+
+  // Usiamo un player dedicato per i token
+  const tokenPlayer = useAudioPlayer(tokenSources[0]);
+
   const [screen, setScreen] = useState('selectNumber');
   const [selectedNumber, setSelectedNumber] = useState(2);
   const [players, setPlayers] = useState([]);
@@ -87,12 +107,13 @@ export default function App() {
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const [gameVotes, setGameVotes] = useState({});
   const inputRefs = useRef([]);
+  const [isFirstReset, setIsFirstReset] = useState(true);
 
-
-  const soundResetRef = useRef(null);
-  const tokenSoundsRef = useRef([]); // Un array per contenere i suoni caricati
   const [showExitModal, setShowExitModal] = useState(false);
   const skullPulseAnim = useRef(new Animated.Value(0)).current;
+
+  const [winner, setWinner] = useState(null);
+  
 
 
   // --- 2. EFFETTI ---
@@ -120,6 +141,10 @@ export default function App() {
         }
         return true;
       }
+      if (screen === 'suspense' || screen === 'winner') {
+        return true; // Blocca l'azione
+      }
+      if (screen === 'showAllVotes') { setScreen('winner'); return true; }
       return false;
     };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
@@ -136,49 +161,6 @@ export default function App() {
       }
     }
   }, [screen]);
-
-  // carica suoni
-  useEffect(() => {
-    async function loadAllSounds() {
-      try {
-        // 1. Carica il reset (come prima)
-        const { sound: resSound } = await Audio.Sound.createAsync(require('./assets/sounds/reset.mp3'));
-        soundResetRef.current = resSound;
-
-        // 2. Carica l'array di monete
-        const soundFiles = [
-          require('./assets/sounds/token (1).mp3'),
-          require('./assets/sounds/token (2).mp3'),
-          require('./assets/sounds/token (3).mp3'),
-          require('./assets/sounds/token (4).mp3'),
-          require('./assets/sounds/token (5).mp3'),
-          require('./assets/sounds/token (6).mp3'),
-          require('./assets/sounds/token (7).mp3'),
-          require('./assets/sounds/token (8).mp3'),
-          require('./assets/sounds/token (9).mp3'),
-          require('./assets/sounds/token (10).mp3'),
-        ];
-
-        const loadedSounds = await Promise.all(
-          soundFiles.map(async (file) => {
-            const { sound } = await Audio.Sound.createAsync(file);
-            return sound;
-          })
-        );
-        tokenSoundsRef.current = loadedSounds;
-
-      } catch (error) {
-        console.log("Errore caricamento pool suoni:", error);
-      }
-    }
-    loadAllSounds();
-
-    return () => {
-      // Pulisci tutti i suoni nell'array
-      tokenSoundsRef.current.forEach(s => s.unloadAsync());
-      if (soundResetRef.current) soundResetRef.current.unloadAsync();
-    };
-  }, []);
 
   //animazione teschio -2
   useEffect(() => {
@@ -221,6 +203,44 @@ export default function App() {
 
   const numbers = Array.from({ length: 9 }, (_, i) => i + 2);
 
+  // Funzioni audio pulite per Expo Audio
+  const playRandomTokenSound = () => {
+    try {
+      if (tokenPlayer) {
+        const randomIndex = Math.floor(Math.random() * tokenSources.length);
+        tokenPlayer.replace(tokenSources[randomIndex]);
+        tokenPlayer.seekTo(0);
+        tokenPlayer.play();
+      }
+    } catch (e) { console.log("Errore token sound:", e); }
+  };
+
+  const playDrumroll = () => {
+    if (drumrollPlayer) {
+      drumrollPlayer.seekTo(0);
+      drumrollPlayer.play();
+    }
+  };
+
+  const playResetSound = () => {
+    if (resetPlayer) {
+      // 1. Lo riportiamo all'inizio
+      resetPlayer.seekTo(0);
+
+      // 2. Lanciamo il play subito
+      resetPlayer.play();
+
+      // 3. Se per caso era "addormentato", ci riproviamo tra 50ms
+      // Questo non crea un doppio suono fastidioso perché il file è lo stesso 
+      // e sta già suonando o partendo.
+      setTimeout(() => {
+        if (resetPlayer && !resetPlayer.playing) {
+          resetPlayer.play();
+        }
+      }, 50);
+    }
+  };
+  
   const handleStartVoting = () => {
     const newPlayers = Array.from({ length: selectedNumber }, (_, i) => ({
       defaultName: `Giocatore ${i + 1}`,
@@ -304,7 +324,7 @@ export default function App() {
     }).start(() => {
       setFallingTokens(prev => prev.filter(t => t.id !== tokenId));
 
-      setGameVotes(prevVotes => {
+    setGameVotes(prevVotes => {
         const currentVoter = prevVotes[currentPlayerIndex];
         if (!currentVoter || !currentVoter.positions) return prevVotes;
         const newPositions = currentVoter.positions.map(t =>
@@ -471,41 +491,69 @@ export default function App() {
     if (currentPlayerIndex < players.length - 1) {
       setScreen('passPhone');
     } else {
-      setScreen('placeholder');
+      setScreen('suspense');
     }
   };
 
-  const playRandomTokenSound = async () => {
-    const sounds = tokenSoundsRef.current;
-    if (sounds.length > 0) {
-      try {
-        // Sceglie un numero a caso tra 0 e la lunghezza dell'array
-        const randomIndex = Math.floor(Math.random() * sounds.length);
-        const selectedSound = sounds[randomIndex];
+  
+  // --- NUOVA LOGICA RISULTATI ---
 
-        await selectedSound.setPositionAsync(0);
-        await selectedSound.playAsync();
-      } catch (error) {
-        console.log("Errore audio random:", error);
-      }
-    }
+  const calculateWinner = () => {
+    const results = games.map(game => {
+      let totalScore = 0;
+      let totalSkulls = 0;
+      let uniqueVoters = new Set();
+
+      Object.keys(gameVotes).forEach(playerIdx => {
+        const votes = gameVotes[playerIdx];
+        const coinCount = votes[game.id] || 0;
+        totalScore += coinCount;
+        if (votes.skull === game.id) {
+          totalScore -= 2;
+          totalSkulls += 1;
+        }
+        if (coinCount > 0 || votes.skull === game.id) {
+          uniqueVoters.add(playerIdx);
+        }
+      });
+
+      return { ...game, finalScore: totalScore, skullsReceived: totalSkulls, voterCount: uniqueVoters.size };
+    });
+
+    results.sort((a, b) => {
+      if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore;
+      if (a.skullsReceived !== b.skullsReceived) return a.skullsReceived - b.skullsReceived;
+      return b.voterCount - a.voterCount;
+    });
+    return results[0];
   };
 
-  const playResetSound = async () => {
-    // Controlliamo se il suono è stato caricato correttamente nel riferimento
-    if (soundResetRef.current) {
-      try {
-        // Riporta il suono all'inizio (fondamentale per i click ripetuti)
-        await soundResetRef.current.setPositionAsync(0);
-        // Suona!
-        await soundResetRef.current.playAsync();
-      } catch (error) {
-        console.log("Errore riproduzione reset:", error);
-      }
-    } else {
-      console.log("Il suono reset non è ancora pronto o caricato");
-    }
+  const handleFinishVoting = () => {
+    // 1. Calcola chi ha vinto (ma non lo dice ancora)
+    const win = calculateWinner();
+    setWinner(win);
+
+    // 2. Cambia la schermata in quella nera "Il vincitore è..."
+    setScreen('suspense');
+
+    // 3. FA PARTIRE IL SUONO (Chiamata al player di expo-audio)
+    playDrumroll();
+
+    // 4. Aspetta che il rullio finisca (es. 3.5 secondi) prima di mostrare la foto
+    setTimeout(() => {
+      setScreen('winner');
+    }, 2000);
   };
+
+  const handleFullReset = () => {
+    setGameVotes({});
+    setGames([]);
+    setCurrentPlayerIndex(0);
+    setWinner(null);
+    setScreen('showPlayers'); // Saltiamo la selezione numero/nomi e andiamo subito alle foto
+  };
+
+
 
   // --- 4. RENDERING ---
   // --- FUNZIONE PER IL MODALE DI USCITA ---
@@ -548,6 +596,81 @@ export default function App() {
       </View>
     </Modal>
   );
+
+  // SCHERMATA SUSPENSE
+  if (screen === 'suspense') {
+    return (
+      <View style={[styles.container, { backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#fff" />
+        <Text style={{ color: '#fff', fontSize: 28, fontWeight: 'bold', marginTop: 20 }}>IL VINCITORE È...</Text>
+      </View>
+    );
+  }
+
+  // 2. SCHERMATA VINCITORE
+  if (screen === 'winner' && winner) {
+    return (
+      <View style={[styles.container, { backgroundColor: '#111827', alignItems: 'center' }]}>
+        <View style={{ marginTop: 80, alignItems: 'center', width: '100%' }}>
+          <Text style={{ color: '#fff', fontSize: 24, fontWeight: 'bold', marginBottom: 20 }}>🏆 VINCITORE!</Text>
+          <View style={styles.winnerImageContainer}>
+            <Image source={{ uri: winner.uri }} style={styles.winnerImage} />
+          </View>
+          <View style={{ width: '100%', alignItems: 'center', marginTop: 50, gap: 15 }}>
+            <TouchableOpacity style={styles.buttonLarge} onPress={() => setScreen('showAllVotes')}>
+              <Text style={styles.buttonText}>VISUALIZZA VOTAZIONI</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.buttonLarge, { backgroundColor: '#374151' }]} onPress={handleFullReset}>
+              <Text style={styles.buttonText}>NUOVA PARTITA</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  // 3. SCHERMATA TUTTE LE VOTAZIONI (GRIGLIA RIORDINATA)
+  if (screen === 'showAllVotes') {
+    const sortedGames = [...games].sort((a, b) => {
+      const getScore = (id) => Object.values(gameVotes).reduce((acc, v) => acc + (v[id] || 0) - (v.skull === id ? 2 : 0), 0);
+      return getScore(b.id) - getScore(a.id);
+    });
+
+    return (
+      <View style={[styles.container, { paddingTop: 0 }]}>
+        <View style={[styles.galleryHeader, { height: 130, paddingTop: 60 }]}>
+          <TouchableOpacity onPress={() => setScreen('winner')} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <AntDesign name="arrow-left" size={20} color="white" />
+            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>RISULTATI</Text>
+          </TouchableOpacity>
+        </View>
+        <ScrollView contentContainerStyle={{ paddingTop: 40, paddingBottom: 200, paddingHorizontal: 15 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+            {sortedGames.map((game, index) => {
+              let score = 0;
+              const tks = []; const sks = [];
+              Object.keys(gameVotes).forEach(pIdx => {
+                const v = gameVotes[pIdx]; const p = players[pIdx];
+                score += (v[game.id] || 0) - (v.skull === game.id ? 2 : 0);
+                for (let i = 0; i < (v[game.id] || 0); i++) tks.push({ c: p.color.bg, id: `${pIdx}-${i}` });
+                if (v.skull === game.id) sks.push({ c: p.color.bg, id: pIdx });
+              });
+
+              const podio = ['#FFD700', '#C0C0C0', '#CD7F32'];
+              return (
+                <View key={game.id} style={[styles.gridItem, { borderColor: index < 3 ? podio[index] : 'transparent', borderWidth: index < 3 ? 4 : 0 }]}>
+                  <Image source={{ uri: game.uri }} style={styles.gridImage} />
+                  <View style={styles.votesOverlay}>{tks.map(t => <View key={t.id} style={[styles.miniToken, { backgroundColor: t.c }]} />)}</View>
+                  <View style={styles.skullsBottomRight}>{sks.map(s => <View key={s.id} style={[styles.miniToken, { backgroundColor: '#FFF', borderColor: s.c }]}><MaterialCommunityIcons name="skull" size={10} color={s.c} /></View>)}</View>
+                  <View style={[styles.scoreBadge, { backgroundColor: index < 3 ? podio[index] : '#111827' }]}><Text style={[styles.scoreBadgeText, { color: index === 0 ? '#000' : '#fff' }]}>{score}</Text></View>
+                </View>
+              );
+            })}
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
 
   // SCHERMATA PASSAGGIO (FULL COLOR)
   if (screen === 'passPhone') {
@@ -690,7 +813,7 @@ export default function App() {
                                 borderWidth: 2,
                                 borderColor: '#FFF',
                                 justifyContent: 'center',
-                                alignItems: 'center'
+                                alignItems: 'center',
                               }
                             ]}
                           >
@@ -756,24 +879,41 @@ export default function App() {
             <TouchableOpacity
               style={[styles.buttonSquare, { backgroundColor: '#374151' }]}
               onPress={() => {
-                playResetSound();
+                if (isFirstReset) {
+                  // PRIMA VOLTA: Doppia chiamata tattica
+                  playResetSound();
+                  setTimeout(() => {
+                    playResetSound();
+                    setIsFirstReset(false); // Segniamo che il "ghiaccio è rotto"
+                  }, 50);
+                } else {
+                  // VOLTE SUCCESSIVE: Chiamata singola normale
+                  playResetSound();
+                }
+
+                // Resto della logica (Vibrazione e pulizia voti)
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                 setTimeout(() => {
-                  setGameVotes(prev => ({ ...prev, [currentPlayerIndex]: { skull: null, positions: [] } }));
+                  setGameVotes(prev => ({
+                    ...prev,
+                    [currentPlayerIndex]: { skull: null, positions: [] }
+                  }));
                 }, 200);
               }}
             >
-              <Text style={styles.buttonText}><MaterialIcons name="refresh" size={24} /></Text>
+              <Text style={styles.buttonText}>
+                <MaterialIcons name="refresh" size={24} />
+              </Text>
             </TouchableOpacity>
 
             {/* TASTO FATTO (Più piccolo e a destra) */}
             <TouchableOpacity
               style={[
                 styles.buttonFattoSmall,
-                { backgroundColor: totalSpent >= 6 ? '#2563eb' : '#374151' } // Cambia colore qui
+                { backgroundColor: totalSpent >= 6 ? '#2563eb' : '#374151' }
               ]}
-              disabled={totalSpent < 6} // Resta disabilitato finché non sono 6
-              onPress={confirmVote}
+              disabled={totalSpent < 6}
+              onPress={currentPlayerIndex < players.length - 1 ? confirmVote : handleFinishVoting} // <--- QUI
             >
               <Text style={styles.buttonText}>
                 {currentPlayerIndex < players.length - 1 ? 'FATTO' : 'TERMINA'}
@@ -1249,4 +1389,44 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 14,
   },
+  winnerImageContainer: {
+    width: width * 0.8,
+    height: width * 0.8,
+    borderRadius: 30,
+    borderWidth: 5,
+    borderColor: '#fbbf24', // Oro
+    overflow: 'hidden',
+    elevation: 20,
+    shadowColor: '#fbbf24',
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+  },
+  miniToken: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: '#FFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 1,
+  },
+  winnerImageContainer: {
+    width: width * 0.8,
+    height: width * 0.8,
+    borderRadius: 30,
+    borderWidth: 5,
+    borderColor: '#fbbf24',
+    overflow: 'hidden',
+  },
+  winnerImage: { width: '100%', height: '100%' },
+  votesOverlay: { position: 'absolute', top: 5, left: 5, right: 5, flexDirection: 'row', flexWrap: 'wrap', gap: 3 },
+  skullsBottomRight: { position: 'absolute', bottom: 5, right: 5, flexDirection: 'row', gap: 3 },
+  miniToken: { width: 16, height: 16, borderRadius: 8, borderWidth: 1, borderColor: '#FFF', justifyContent: 'center', alignItems: 'center' },
+  scoreBadge: { position: 'absolute', bottom: 0, left: 0, paddingHorizontal: 8, paddingVertical: 2, borderTopRightRadius: 8, borderBottomLeftRadius: 10 },
+  scoreBadgeText: { fontWeight: 'bold', fontSize: 12 },
 });
