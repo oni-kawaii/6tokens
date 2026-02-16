@@ -113,6 +113,9 @@ export default function App() {
   const skullPulseAnim = useRef(new Animated.Value(0)).current;
 
   const [winner, setWinner] = useState(null);
+  const [tieGames, setTieGames] = useState([]);
+  const [isTieBreak, setIsTieBreak] = useState(false);
+  const [showTieModal, setShowTieModal] = useState(false);
   
 
 
@@ -520,37 +523,63 @@ export default function App() {
       return { ...game, finalScore: totalScore, skullsReceived: totalSkulls, voterCount: uniqueVoters.size };
     });
 
+    // Ordiniamo per trovare i potenziali vincitori
     results.sort((a, b) => {
       if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore;
       if (a.skullsReceived !== b.skullsReceived) return a.skullsReceived - b.skullsReceived;
       return b.voterCount - a.voterCount;
     });
-    return results[0];
+
+    const bestScore = results[0].finalScore;
+    const bestSkulls = results[0].skullsReceived;
+    const bestVoters = results[0].voterCount;
+
+    // Troviamo tutti quelli che hanno esattamente gli stessi parametri del primo
+    const winners = results.filter(g =>
+      g.finalScore === bestScore &&
+      g.skullsReceived === bestSkulls &&
+      g.voterCount === bestVoters
+    );
+
+    return { winner: winners[0], allWinners: winners };
   };
 
+  // Cerca il tasto TERMINA e assicurati che chiami handleFinishVoting.
+  // Poi dentro handleFinishVoting aggiungi questo controllo all'inizio:
+
   const handleFinishVoting = () => {
-    // 1. Calcola chi ha vinto (ma non lo dice ancora)
-    const win = calculateWinner();
-    setWinner(win);
+    const { winner, allWinners } = calculateWinner();
 
-    // 2. Cambia la schermata in quella nera "Il vincitore è..."
-    setScreen('suspense');
-
-    // 3. FA PARTIRE IL SUONO (Chiamata al player di expo-audio)
-    playDrumroll();
-
-    // 4. Aspetta che il rullio finisca (es. 3.5 secondi) prima di mostrare la foto
-    setTimeout(() => {
-      setScreen('winner');
-    }, 2000);
+    if (allWinners.length > 1) {
+      if (isTieBreak) {
+        // Se siamo già al ballottaggio e c'è ancora pareggio, decidiamo noi a caso
+        const randomWinner = allWinners[Math.floor(Math.random() * allWinners.length)];
+        setWinner(randomWinner);
+        setScreen('suspense');
+        playDrumroll();
+        setTimeout(() => setScreen('winner'), 2000);
+      } else {
+        // Primo pareggio: mostra la scelta
+        setTieGames(allWinners);
+        setScreen('tieChoice');
+      }
+    } else {
+      // Vincitore pulito
+      setWinner(winner);
+      setScreen('suspense');
+      playDrumroll();
+      setTimeout(() => setScreen('winner'), 2000);
+    }
   };
 
   const handleFullReset = () => {
     setGameVotes({});
     setGames([]);
+    setTieGames([]); // <--- Aggiunto
+    setIsTieBreak(false); // <--- Aggiunto
     setCurrentPlayerIndex(0);
     setWinner(null);
-    setScreen('showPlayers'); // Saltiamo la selezione numero/nomi e andiamo subito alle foto
+    setScreen('showPlayers');
   };
 
 
@@ -596,6 +625,43 @@ export default function App() {
       </View>
     </Modal>
   );
+
+  // --- SCHERMATA PAREGGIO (BIVIO) ---
+  if (screen === 'tieChoice') {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', paddingHorizontal: 30 }]}>
+        <Text style={{ color: '#fbbf24', fontSize: 40, fontWeight: 'bold', marginBottom: 10 }}>PAREGGIO!</Text>
+        <Text style={{ color: '#fff', fontSize: 18, textAlign: 'center', marginBottom: 40, lineHeight: 24 }}>
+          {tieGames.length} giochi sono finiti a pari merito.{"\n"}Cosa volete fare?
+        </Text>
+
+        <TouchableOpacity
+          style={[styles.buttonLarge, { backgroundColor: '#2563eb' }]}
+          onPress={() => {
+            setIsTieBreak(true);
+            setGameVotes({});
+            setCurrentPlayerIndex(0);
+            setScreen('passPhone');
+          }}
+        >
+          <Text style={styles.buttonText}>BALLOTTAGGIO RAPIDO</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.buttonLarge, { backgroundColor: '#10b981', marginTop: 20 }]}
+          onPress={() => {
+            const randomWinner = tieGames[Math.floor(Math.random() * tieGames.length)];
+            setWinner(randomWinner);
+            setScreen('suspense');
+            playDrumroll();
+            setTimeout(() => setScreen('winner'), 2000);
+          }}
+        >
+          <Text style={styles.buttonText}>SCELTA CASUALE</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   // SCHERMATA SUSPENSE
   if (screen === 'suspense') {
@@ -744,7 +810,7 @@ export default function App() {
           overScrollMode="never">
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}
           >
-            {games.map((game) => {
+              {(isTieBreak ? tieGames : games).map((game) => {
               const tokens = voterVotes[game.id] || 0;
               const hasSkull = voterVotes.skull === game.id;
               const isAnimating = fallingTokens.some(t => t.gameId === game.id);
